@@ -1,0 +1,12 @@
+{
+  "folders": [
+    {
+      "uri": "vscode-remote://ssh-remote+cyan/home/ubuntu/Code/clojure"
+    },
+  ],
+  "remoteAuthority": "ssh-remote+cyan",
+  "settings": {
+    "editor.formatOnPaste": true,
+    "editor.formatOnSave": true,
+  },
+}

@@ -1,0 +1,10 @@
+.venv
+*.bak
+*.bk
+temp
+.vscode
+*.log
+__debug_bin
+.python-version
+sn-*
+.dockerignore

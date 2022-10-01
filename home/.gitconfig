@@ -1,0 +1,12 @@
+[user]
+  email = 
+  name = 
+[credential]
+  helper = store
+[core]
+  excludesfile = /home/uname/.gitignore
+#[url "ssh://git@github.com/"]
+#  insteadOf = https://github.com/
+#[url "msazure@ssh.dev.azure.com:v3"]
+#  insteadOf = https://dev.azure.com
+

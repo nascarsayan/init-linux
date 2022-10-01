@@ -1,0 +1,54 @@
+{
+  "folders": [
+    {
+      "uri": "vscode-remote://ssh-remote+nix/home/arcvmware/Code/ms/one/AzureArc-VMwareOperator/src/VMMOperator"
+    },
+    {
+      "uri": "vscode-remote://ssh-remote+nix/home/arcvmware/Code/ms/one/AzureArc-VMwareOperator/src/PowerShellSession"
+    },
+    {
+      "uri": "vscode-remote://ssh-remote+nix/home/arcvmware/Code/ms/bunker/powertest"
+    },
+    {
+      "uri": "vscode-remote://ssh-remote+nix/home/arcvmware/Code/ms/one/AzureArc-VMwareOperator/src/pkg"
+    },
+    {
+      "uri": "vscode-remote://ssh-remote+nix/home/arcvmware/Code/ms/one/AzureArc-VMwareOperator/src/VMwareOperator"
+    },
+    {
+      "uri": "vscode-remote://ssh-remote+nix/home/arcvmware/Code/ms/one/AzureArc-VMwareOperator/src/RPaaS"
+    },
+    {
+      "uri": "vscode-remote://ssh-remote+nix/home/arcvmware/Code/ms/one/AzureArc-VMwareOperator/src/Scripts"
+    },
+    {
+      "uri": "vscode-remote://ssh-remote+nix/home/arcvmware/Code/ms/one/AzureArc-VMwareOperator/src/ExtensionRegistrationPayloads"
+    },
+    {
+      "uri": "vscode-remote://ssh-remote+nix/home/arcvmware/Code/ms/bunker/vmmBunker"
+    },
+    {
+      "uri": "vscode-remote://ssh-remote+nix/home/arcvmware/Code/ms/one/AzureArc-VMwareOperator/.pipelines"
+    },
+    {
+      "uri": "vscode-remote://ssh-remote+nix/home/arcvmware/Code/ms/bunker/powertest"
+    },
+    {
+      "uri": "vscode-remote://ssh-remote+nix/home/arcvmware/Code/packages/govmomi/govc"
+    },
+    // {
+    //   "uri": "vscode-remote://ssh-remote+nix/home/arcvmware/Code/github.com/nascarsayan/deed"
+    // },
+  ],
+  "remoteAuthority": "ssh-remote+nix",
+  "settings": {
+    "go.lintTool": "golangci-lint",
+    "go.formatTool": "goimports"
+  },
+  "extensions": {
+    "recommendations": [
+      "maptz.regionfolder",
+      "streetsidesoftware.code-spell-checker"
+    ]
+  }
+}

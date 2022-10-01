@@ -1,0 +1,48 @@
+{
+  "folders": [
+    {
+      "uri": "vscode-remote://ssh-remote+ovm/home/ubuntu/Code/binarysearch.com"
+    },
+    {
+      "uri": "vscode-remote://ssh-remote+ovm/home/ubuntu/Code/interviewbit.com"
+    },
+    {
+      "uri": "vscode-remote://ssh-remote+ovm/home/ubuntu/Code/leetcode.com"
+    },
+    {
+      "uri": "vscode-remote://ssh-remote+ovm/home/ubuntu/Code/codeforces.com"
+    },
+    {
+      "uri": "vscode-remote://ssh-remote+ovm/home/ubuntu/Code/algozenith.com"
+    },
+    {
+      "uri": "vscode-remote://ssh-remote+ovm/home/ubuntu/Code/cpio"
+    },
+    {
+      "uri": "vscode-remote://ssh-remote+ovm/home/ubuntu/Code/pad"
+    },
+    {
+      "uri": "vscode-remote://ssh-remote+ovm/home/ubuntu/Code/tokenmanager"
+    },
+    {
+      "uri": "vscode-remote://ssh-remote+ovm/home/ubuntu/Code/gh"
+    }
+  ],
+  "remoteAuthority": "ssh-remote+ovm",
+  "settings": {
+    "python.formatting.provider": "yapf",
+    "python.analysis.typeCheckingMode": "strict",
+    "files.associations": {
+      "chrono": "cpp",
+      "memory_resource": "c",
+      "future": "c",
+      "shared_mutex": "c",
+      "*.tcc": "c",
+      "bitset": "c",
+      "cstdlib": "c",
+      "regex": "c"
+    },
+    "editor.formatOnSave": true,
+    "svg.preview.background": "white",
+  },
+}
