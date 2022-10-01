@@ -2,11 +2,11 @@
 
 ### 1. Customize 
 
-  - Either add all your keys with prefix `id_rsa` (eg: `id_rsa_github`, `id_rsa_github.pub`) in `home/.ssh/`.
+  - Either add all your keys with prefix `id_rsa` (eg: `id_rsa_github`, `id_rsa_github.pub`) in `home/.ssh/`.<br/>
 Alternatively, you can add your keys later, after running the scripts.
 
-  - Edit the [`./home/.ssh/config`](./home/.ssh/config)` as per your requirements.
-If you have some jumpbox VMs you can manage the configs here.
+  - Edit the [`./home/.ssh/config`](./home/.ssh/config) as per your requirements.<br/>
+If you have some jumpbox VMs you can manage the configs here.<br/>
 You can also edit your `/etc/hosts` file to give user-friendly names to your Jumpbox IPs.
 
 ### 2. Set up your cli prompt and install other utility tools.
