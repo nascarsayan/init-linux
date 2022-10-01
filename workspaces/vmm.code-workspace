@@ -36,9 +36,6 @@
     {
       "uri": "vscode-remote://ssh-remote+nix/home/arcvmware/Code/packages/govmomi/govc"
     },
-    // {
-    //   "uri": "vscode-remote://ssh-remote+nix/home/arcvmware/Code/github.com/nascarsayan/deed"
-    // },
   ],
   "remoteAuthority": "ssh-remote+nix",
   "settings": {

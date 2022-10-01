@@ -5,8 +5,9 @@ xz-utils tk-dev libffi-dev liblzma-dev python-openssl git
 
 curl https://pyenv.run | bash
 
-printf "Pyenv installed. Run:\n\
+printf "pyenv installed. Now installed some version of python:\n\
 exec -l \$SHELL\n\
+pyenv list\n\
 pyenv install 3.10.4\n\
 pyenv global 3.10.4\n\
 "

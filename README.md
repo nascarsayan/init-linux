@@ -14,9 +14,14 @@ You can also edit your `/etc/hosts` file to give user-friendly names to your Jum
 bash init.zsh
 ```
 
-This will set up zsh with oh-my-zsh. Iniside [`~/.oh-my-zsh/custom/`](./home/.oh-my-zsh/custom/) you'll find several utility functions and aliases which are loaded (sourced) into the shell.
+This will set up zsh with oh-my-zsh. Inside [`~/.oh-my-zsh/custom/`](./home/.oh-my-zsh/custom/) you'll find several utility functions and aliases which are loaded (sourced) into the shell.
 
 ### 3. Install `pyenv`, `gvm`, etc.
+
+- [pyenv](https://github.com/pyenv/pyenv): Python Version Manager
+- [gvm](https://github.com/moovweb/gvm): Go Version Manager
+- [n](https://github.com/tj/n): Nodejs Version Manager.<br/>
+  Already installed while running `init.sh`, as it has a low footprint, and installs quickly.
 
 ```sh
 bash packages/pyenv.sh
@@ -32,7 +37,7 @@ You can save your `~/.zsh_history` for later reference. A vital step in improvin
 A function called `merge_zsh_hist` is created in [`~/.oh-my-zsh/custom/03_abbrev.zsh`](./home/.oh-my-zsh/custom/03_abbrev.zsh)
 
 ```sh
-merge_zsh_hist <path-to-saved-zsh-history-file>`
+merge_zsh_hist <path-to-saved-zsh-history-file>
 ```
 I've checked in my personal zsh history: `./.zsh_history`
 
