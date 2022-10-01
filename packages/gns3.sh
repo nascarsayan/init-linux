@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 install_gns3() {
   sudo add-apt-repository -y ppa:gns3/ppa
   sudo apt update                                

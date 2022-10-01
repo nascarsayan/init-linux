@@ -29,10 +29,10 @@ bash packages/gvm.sh
 
 You can save your `~/.zsh_history` for later reference. A vital step in improving your CLI experience is having access to all the great CLI commands you've run till now.
 
-A function called `merge_zsh_hist` is created in `./home/.oh-my-zsh/custom/03_abbrev.zsh`. 
+A function called `merge_zsh_hist` is created in [`~/.oh-my-zsh/custom/03_abbrev.zsh`](./home/.oh-my-zsh/custom/03_abbrev.zsh)
 
 ```sh
-merge_zsh_hist <path-to-saved-zsh-history-file`
+merge_zsh_hist <path-to-saved-zsh-history-file>`
 ```
 I've checked in my personal zsh history: `./.zsh_history`
 
