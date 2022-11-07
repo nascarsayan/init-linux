@@ -60,9 +60,6 @@ ln -s -f ~/.tmux/.tmux.conf ~/.tmux.conf
 git clone https://github.com/nascarsayan/.tmux.local.git ~/.tmux.local
 ln -s -f ~/.tmux.local/.tmux.conf.local ~/.tmux.conf.local
 
-echo "Configuring neovim"
-git clone https://github.com/nascarsayan/nvim ~/.config/nvim
-
 # Tell the patches to make
 echo "
 ## Have made the following changes:
