@@ -1,5 +1,6 @@
 export whome="/mnt/c/Users/$USER"
 alias vim="nvim"
+alias cat="bat"
 # export EDITOR="code"
 export EDITOR="nvim"
 export CP_IO_PATH="$HOME/Code/cp/io/"
