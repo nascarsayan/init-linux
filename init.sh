@@ -9,7 +9,7 @@ chmod u+x nvim.appimage
 ./nvim.appimage --appimage-extract
 sudo mv squashfs-root /
 sudo ln -s /squashfs-root/AppRun /usr/bin/nvim
-sudo -E apt install build-essential net-tools vim git zsh tmux fasd tree jq htop curl wget netplan.io nano iputils-ping mercurial bison -y
+sudo -E apt install build-essential net-tools vim git zsh tmux fasd tree jq htop curl wget netplan.io nano iputils-ping mercurial bison bat -y
 sudo wget https://github.com/mikefarah/yq/releases/download/v4.13.3/yq_linux_amd64 -O /usr/bin/yq && sudo chmod +x /usr/bin/yq
 # wget https://arcscvmm.blob.core.windows.net/temp/cc-arcvmm.sh -O packages/cc-arcvmm.sh
 curl -L https://git.io/n-install | bash -s -- -y
