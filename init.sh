@@ -95,4 +95,4 @@ rsync -a ./home/ ~
 perl -i -pe "s/uname/$USER/" ~/.gitconfig
 
 echo "Changing the default shell to zsh"
-chsh -s "$(which zsh)"
+sudo chsh -s "$(which zsh)" $USER
