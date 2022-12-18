@@ -29,9 +29,6 @@ git clone https://github.com/zsh-users/zsh-autosuggestions "$zsh_custom/plugins/
 # install zsh syntax-highlighting
 git clone https://github.com/zsh-users/zsh-syntax-highlighting.git "$zsh_custom/plugins/zsh-syntax-highlighting"
 
-# install zsh autosuggestions
-git clone https://github.com/zsh-users/zsh-autosuggestions.git "$zsh_custom/plugins/zsh-autosuggestions"
-
 # install kubectl aliases
 wget https://raw.githubusercontent.com/ahmetb/kubectl-alias/master/.kubectl_aliases -O "$zsh_custom/000_kubectl.zsh"
 
