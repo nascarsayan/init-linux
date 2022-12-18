@@ -39,7 +39,7 @@ git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "$zsh_custom/th
 git clone https://github.com/denysdovhan/spaceship-prompt.git "$zsh_custom/themes/spaceship-prompt" --depth=1
 ln -s "$zsh_custom/themes/spaceship-prompt/spaceship.zsh-theme" "$zsh_custom/themes/spaceship.zsh-theme"
 
-perl -i -pe 's~robbyrussell~spaceship~' "$HOME"/.zshrc
+perl -i -pe 's~robbyrussell~alanpeabody~' "$HOME"/.zshrc
 perl -i -pe "s~#\s*(?=DISABLE_MAGIC_FUNCTIONS)~~" "$HOME"/.zshrc
 perl -i -pe "s~#\s*(?=DISABLE_UPDATE_PROMPT)~~" "$HOME"/.zshrc
 perl -i -pe "s~# (?=(zstyle ':omz:update' mode auto))~~" "$HOME"/.zshrc
