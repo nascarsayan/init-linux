@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 sudo rm -rf /var/lib/dpkg/lock* /var/cache/apt/archives/lock
 sudo -E apt autoremove -y --purge unattended-upgrades
 sudo -E apt update
@@ -88,10 +89,10 @@ DISABLE_UPDATE_PROMPT=true
 "
 
 # * Copy customizations
-chmod 0700 home/.ssh
-find home/.ssh -not -name "*.pub" -name "id_rsa*" -exec chmod 0600 "{}" "+"
+chmod 0700 $SCRIPT_DIR/home/.ssh
+find $SCRIPT_DIR/home/.ssh -not -name "*.pub" -name "id_rsa*" -exec chmod 0600 "{}" "+"
 
-rsync -a ./home/ ~
+rsync -a $SCRIPT_DIR/home/ ~
 perl -i -pe "s/uname/$USER/" ~/.gitconfig
 
 echo "Changing the default shell to zsh"
