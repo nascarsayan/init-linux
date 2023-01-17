@@ -2,49 +2,31 @@ export whome="/mnt/c/Users/$USER"
 command -v nvim > /dev/null && alias vim="nvim"
 command -v batcat > /dev/null && alias cat="batcat"
 # export EDITOR="code"
-export EDITOR="nvim"
-export CP_IO_PATH="$HOME/Code/cp/io/"
+export EDITOR="vim"
 export HELM_EXPERIMENTAL_OCI=1
 export GO111MODULE=on
 export KUBECONFIG="$HOME/.kube/config"
-export LC_ALL=en_IN.UTF-8
-export LANG=en_IN.UTF-8
-export LC_CTYPE=en_US.UTF-8
-export LC_ALL=en_US.UTF-8
+export HOMEBREW_NO_AUTO_UPDATE=1
 
 alias g++="g++ -std=c++17"
 
 export wspc="$HOME/Code/workspaces"
-export vbun="$HOME/Code/ms/bunker/vmmBunker"
+export vbun="$HOME/Code/bunker"
 # Set azarc as the path to your AzureArc directory
 # azcli
 export azcli="$HOME/Code/ms/azure/cli/"
 export AZCLI_SRC_PATH="$azcli/azure-cli"
 export azclivmm="$azcli/azure-cli-extensions/src/scvmm/"
 export azclivmw="$azcli/azure-cli-extensions/src/connectedvmware/"
-export azarc="$HOME/Code/ms/one/AzureArc-VMwareOperator"
+export azarc="$HOME/Code/dev.azure.com/msazure/One/AzureArc-VMwareOperator"
 
 # operator
 export vmmo="$azarc/src/VMMOperator"
-alias vmmo="code $wspc/vmm.code-workspace"
+alias vmmo="code $azarc/src/vmm.code-workspace"
 export vmwo="$azarc/src/VMwareOperator"
-alias vmwo="code $wspc/vmware.code-workspace"
-export azarcref="$HOME/Code/ms/one/Ref-AzureArc-VMwareOperator"
-export vmmoref="$azarcref/src/VMMOperator"
-export vmworef="$azarcref/src/VMwareOperator"
-export vvbase="$vmmo/helm/templates/crds.yaml"
-export vvkplug="$vmmo/pkg/kubectl-plugin"
-export vvsamp="$vbun/VMMOperator-CRD-Samples/src/VMMOperator/config/samples"
-export vvs="$vvsamp/vmmserver_v1alpha1_vmmserver.yaml"
-export vvc="$vvsamp/vmmserver_v1alpha1_cloud.yaml"
-export vvmt="$vvsamp/vmmserver_v1alpha1_virtualmachinetemplate.yaml"
-export vvm="$vvsamp/vmmserver_v1alpha1_virtualmachine.yaml"
-export vvn="$vvsamp/vmmserver_v1alpha1_virtualnetwork.yaml"
-export vvart="$vvsamp/vmmserver_v1alpha1_virtualmachinestartaction.yaml"
-export vvaop="$vvsamp/vmmserver_v1alpha1_virtualmachinestopaction.yaml"
-export vvair="$vvsamp/vmmserver_v1alpha1_virtualmachinerepairaction.yaml"
-export vvarert="$vvsamp/vmmserver_v1alpha1_virtualmachinerestartaction.yaml"
-export vvinit="$vvsamp/init.yaml"
+alias vmwo="code $azarc/src/vmware.code-workspace"
+export vmwcr="$vbun/vmwcr"
+
 alias kndc="kind create cluster --config=$azarc/src/kind-cluster/kind-config;ka $vvbase;ka $vvinit"
 alias kndd="kind delete cluster --name kind"
 alias kndre="kndd;kndc"
