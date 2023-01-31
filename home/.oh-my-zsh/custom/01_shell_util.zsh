@@ -17,4 +17,4 @@ tmux_on_login() {
   fi
 }
 
-tmux_on_login
+# tmux_on_login
