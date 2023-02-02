@@ -7,6 +7,9 @@ export HELM_EXPERIMENTAL_OCI=1
 export GO111MODULE=on
 export KUBECONFIG="$HOME/.kube/config"
 export HOMEBREW_NO_AUTO_UPDATE=1
+export LANGUAGE=en_US.UTF-8
+export LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
 
 alias g++="g++ -std=c++17"
 
