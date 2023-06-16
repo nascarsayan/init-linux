@@ -52,6 +52,24 @@ get_container_size() {
   curl -s -H "Authorization: JWT " "https://hub.docker.com/v2/repositories/library/$img/tags/?page_size=100" | jq -r ".results[] | select(.name == \"$tag\") | .images[0].size" | numfmt --to=iec-i
 }
 
+batchvmcreate()
+{
+	count=$1
+	for i in {001..$count}; do
+		template=$(cat $vvm | sed "s/sn-load-test/sn-load-test-$i/g")
+		echo "$template" | kubectl apply -f -
+	done
+}
+
+batchvmdel()
+{
+	count=$1
+	for i in {001..$count}; do
+		template=$(cat $vvm | sed "s/sn-load-test/sn-load-test-$i/g")
+		echo "$template" | kubectl delete --recursive -f -
+	done
+}
+
 helm_vmm() {
   set -x
   img=$1
@@ -164,7 +182,7 @@ del_gru() {
   krmf $vvc; krmf $vvmt; krmf $vvs;
 }
 
-del_minions() {
+cleanup_vmm_crs() {
 kubectl delete vmmservers.vmmserver.vmm.microsoft.com -A --all
 vm_count=$(kubectl get virtualmachines.vmmserver.vmm.microsoft.com -A -o name | wc -l)
 kubectl delete virtualmachines.vmmserver.vmm.microsoft.com -A --all --wait=false
@@ -178,6 +196,20 @@ echo "Waiting for all VM CRs to get deleted"
 while [ -n "$(kubectl get virtualmachines.vmmserver.vmm.microsoft.com -A -o name)" ]; do date; sleep 1; done
 }
 
+cleanup_vmware_crs() {
+kubectl delete vcenters.vsphere.vmware.microsoft.com -A --all
+vm_count=$(kubectl get virtualmachines.vsphere.vmware.microsoft.com -A -o name | wc -l)
+kubectl delete virtualmachines.vsphere.vmware.microsoft.com -A --all --wait=false
+echo "Waiting for deletion timestamp to be set for $vm_count VMs"
+while [ "$(kubectl get virtualmachines.vsphere.vmware.microsoft.com -A -o=jsonpath='{.items[*].metadata.deletionTimestamp}' | wc -w)" != "$vm_count" ]; do date; sleep 1; done
+for ns in $(kubectl get namespace -o=jsonpath='{.items[*].metadata.name}'); do
+  echo "Removing the finalizers for all VMs in $ns namespace"
+  kubectl get virtualmachines.vsphere.vmware.microsoft.com -n $ns -o name | xargs -I {} kubectl patch -n $ns {} -p '{"metadata":{"finalizers":null}}' --type merge
+done;
+echo "Waiting for all VM CRs to get deleted"
+while [ -n "$(kubectl get virtualmachines.vsphere.vmware.microsoft.com -A -o name)" ]; do date; sleep 1; done
+}
+
 list_acr_manifests() {
   az acr repository show-manifests --name arcprivatecloudtest --repository helm/azure-scvmmoperator | yq e '.[].tags.[]' - | sort -V
 }
@@ -188,5 +220,20 @@ merge_zsh_hist() {
   builtin fc -R -I $1
   builtin fc -W "$HOME/.zsh_history_2"
   mv "$HOME/.zsh_history" "$HOME/.zsh_history.bk" && mv "$HOME/.zsh_history_2" "$HOME/.zsh_history"
+}
+
+curl_wsman() {
+	host=$1
+	[ -z $host ] && echo "usage: test_wsman <ip>" && return 1; 
+	curl \
+		--header "Content-Type: application/soap+xml;charset=UTF-8" \
+		--header "WSMANIDENTIFY: unauthenticated" http://$host:5985/wsman \
+		--data '&lt;s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:wsmid="http://schemas.dmtf.org/wbem/wsman/identity/1/wsmanidentity.xsd"&gt;&lt;s:Header/&gt;&lt;s:Body&gt;&lt;wsmid:Identify/&gt;&lt;/s:Body&gt;&lt;/s:Envelope&gt;'
+}
+
+nc_wsman() {
+	host=$1
+	[ -z $host ] && echo "usage: test_wsman <ip>" && return 1;
+	nc -vz $host 5985;
 }
 
