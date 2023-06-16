@@ -88,8 +88,11 @@ show_proxy() {
 
 show_proxy_usage() {
     echo "Usage: set_proxy [--url <proxy_url>] [--cert <cert_file>] [--isolated] [--help]"
-    echo "  --url       : URL of the proxy server (including http:// or https://)"
+    echo "  --url       : URL of the proxy server (including scheme, optional username:password, and optional port)"
+    echo "                Examples: "
+    echo "                  - http://proxy.example.com"
+    echo "                  - http://username:password@proxy.example.com:3128"
     echo "  --cert      : Path to the certificate file for SSL proxies (optional)"
-    echo "  --isolated  : Set NO_PROXY environment variable for isolated network (default: false)"
+    echo "  --isolated  : Set NO_PROXY environment variable for isolated cluster (default: false)"
     echo "  --help      : Show usage information"
 }
