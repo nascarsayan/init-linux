@@ -41,36 +41,6 @@ command -v kubectl >/dev/null && compdef kubecolor=kubectl
 SPACESHIP_DOCKER_SHOW=false
 SPACESHIP_GOLANG_SHOW=false
 
-batchvmcreate()
-{
-	count=$1
-	for i in {001..$count}; do
-		template=$(cat $vvm | sed "s/sn-load-test/sn-load-test-$i/g")
-		echo "$template" | kubectl apply -f -
-	done
-}
-
-batchvmdel()
-{
-	count=$1
-	for i in {001..$count}; do
-		template=$(cat $vvm | sed "s/sn-load-test/sn-load-test-$i/g")
-		echo "$template" | kubectl delete --recursive -f -
-	done
-}
-
-fmt()
-{
-	file=$vmmo/pkg/gopowershell/shell.go
-	mat="fmt.Println"
-	pre="// "
-	if grep -Fq "$pre$mat" $file; then
-		sed -i "s|$pre$mat|$mat|" $file
-	else
-		sed -i "s|$mat|$pre$mat|" $file
-	fi
-}
-
 SPACESHIP_TIME_SHOW=true
 SPACESHIP_USER_SHOW=always
 SPACESHIP_HOST_SHOW=always

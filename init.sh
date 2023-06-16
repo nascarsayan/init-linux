@@ -31,7 +31,7 @@ git clone https://github.com/zsh-users/zsh-autosuggestions "$zsh_custom/plugins/
 git clone https://github.com/zsh-users/zsh-syntax-highlighting.git "$zsh_custom/plugins/zsh-syntax-highlighting"
 
 # install kubectl aliases
-wget https://raw.githubusercontent.com/ahmetb/kubectl-alias/master/.kubectl_aliases -O "$zsh_custom/000_kubectl.zsh"
+wget https://raw.githubusercontent.com/ahmetb/kubectl-alias/master/.kubectl_aliases -O "$zsh_custom/20_kubectl.zsh"
 
 # install p10k
 git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "$zsh_custom/themes/powerlevel10k"
@@ -89,11 +89,11 @@ DISABLE_UPDATE_PROMPT=true
 "
 
 # * Copy customizations
-chmod 0700 $SCRIPT_DIR/home/.ssh
-find $SCRIPT_DIR/home/.ssh -not -name "*.pub" -name "id_rsa*" -exec chmod 0600 "{}" "+"
+chmod 0700 "$SCRIPT_DIR/home/.ssh"
+find "$SCRIPT_DIR/home/.ssh" -not -name "*.pub" -name "id_rsa*" -exec chmod 0600 "{}" "+"
 
-rsync -a $SCRIPT_DIR/home/ ~
+rsync -a "$SCRIPT_DIR/home/" ~
 perl -i -pe "s/uname/$USER/" ~/.gitconfig
 
 echo "Changing the default shell to zsh"
-sudo chsh -s "$(which zsh)" $USER
+sudo chsh -s "$(which zsh)" "$USER"
