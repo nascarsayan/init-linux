@@ -1,6 +1,5 @@
 export whome="/mnt/c/Users/$USER"
 command -v nvim > /dev/null && alias vim="nvim"
-command -v batcat > /dev/null && alias cat="batcat"
 # export EDITOR="code"
 export EDITOR="vim"
 export HELM_EXPERIMENTAL_OCI=1
