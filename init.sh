@@ -1,19 +1,59 @@
 #!/usr/bin/env bash
+
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-sudo rm -rf /var/lib/dpkg/lock* /var/cache/apt/archives/lock
-sudo -E apt autoremove -y --purge unattended-upgrades
-sudo -E apt update
-sudo -E apt install nnn
-# sudo -E apt upgrade -y
-curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim.appimage
-chmod u+x nvim.appimage
-./nvim.appimage --appimage-extract
-sudo mv squashfs-root /
-sudo ln -s /squashfs-root/AppRun /usr/bin/nvim
-sudo -E apt install build-essential net-tools vim git zsh tmux fasd tree jq htop curl wget netplan.io nano iputils-ping mercurial bison bat -y
-sudo wget https://github.com/mikefarah/yq/releases/download/v4.13.3/yq_linux_amd64 -O /usr/bin/yq && sudo chmod +x /usr/bin/yq
-# wget https://arcscvmm.blob.core.windows.net/temp/cc-arcvmm.sh -O packages/cc-arcvmm.sh
+
+install_packages() {
+  brew_packages=(nnn vim git zsh tmux tree jq htop curl wget nano iputils bison bat neovim tmux)
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    if ! command -v brew &> /dev/null; then
+      echo "Homebrew is not installed. Please install Homebrew first."
+      exit 1
+    fi
+    brew install "${brew_packages[@]}"
+  elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    if command -v brew &> /dev/null; then
+      brew install "${brew_packages[@]}"
+    elif command -v apt &> /dev/null; then
+      sudo rm -rf /var/lib/dpkg/lock* /var/cache/apt/archives/lock
+      sudo -E apt autoremove -y --purge unattended-upgrades
+      sudo -E apt update
+      sudo -E apt install -y nnn build-essential net-tools vim git zsh tmux fasd tree jq htop curl wget nano iputils-ping mercurial bison bat
+
+      curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim.appimage
+      chmod u+x nvim.appimage
+      ./nvim.appimage --appimage-extract
+      sudo mv squashfs-root /
+      sudo ln -s /squashfs-root/AppRun /usr/bin/nvim
+    else
+      echo "Neither Homebrew nor apt is installed. Please install one of them first."
+      exit 1
+    fi
+  else
+    echo "Unsupported OS type: $OSTYPE"
+    exit 1
+  fi
+}
+
+install_packages
+
+sudo curl -L https://github.com/mikefarah/yq/releases/download/v4.13.3/yq_linux_amd64 -o /usr/bin/yq && sudo chmod +x /usr/bin/yq
 curl -L https://git.io/n-install | bash -s -- -y
+
+# if ~/.oh-my-zsh exists, confirm if we should delete it. if no selected, exit
+if [ -d "$HOME/.oh-my-zsh" ]; then
+  # if folder is emoty delete it, else ask user if they want to delete it
+  if [ -z "$(ls -A "$HOME/.oh-my-zsh")" ]; then
+    echo "Deleting empty oh-my-zsh folder without confirmation."
+    rm -rf "$HOME/.oh-my-zsh"
+  else
+    read -p "oh-my-zsh already exists. Do you want to delete it? [y/N] " -r
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+      echo "Exiting script because oh-my-zsh already exists and user chose not to delete it."
+      return
+    fi
+    rm -rf "$HOME/.oh-my-zsh"
+  fi
+fi
 
 # * Zsh setup
 # install oh my zsh
@@ -31,17 +71,17 @@ git clone https://github.com/zsh-users/zsh-autosuggestions "$zsh_custom/plugins/
 git clone https://github.com/zsh-users/zsh-syntax-highlighting.git "$zsh_custom/plugins/zsh-syntax-highlighting"
 
 # install kubectl aliases
-wget https://raw.githubusercontent.com/ahmetb/kubectl-alias/master/.kubectl_aliases -O "$zsh_custom/20_kubectl.zsh"
+curl -L https://raw.githubusercontent.com/ahmetb/kubectl-alias/master/.kubectl_aliases -o "$zsh_custom/20_kubectl.zsh"
 
 # install p10k
 git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "$zsh_custom/themes/powerlevel10k"
 
-# installspaceship prompt
+# install spaceship prompt
 git clone https://github.com/denysdovhan/spaceship-prompt.git "$zsh_custom/themes/spaceship-prompt" --depth=1
 ln -s "$zsh_custom/themes/spaceship-prompt/spaceship.zsh-theme" "$zsh_custom/themes/spaceship.zsh-theme"
 
 # github theme
-wget https://raw.githubusercontent.com/Debdut/github.zsh-theme/main/github.zsh-theme -O "$zsh_custom/themes/github.zsh-theme"
+curl -L https://raw.githubusercontent.com/Debdut/github.zsh-theme/main/github.zsh-theme -o "$zsh_custom/themes/github.zsh-theme"
 
 perl -i -pe 's~robbyrussell~github~' "$HOME"/.zshrc
 perl -i -pe "s~#\s*(?=DISABLE_MAGIC_FUNCTIONS)~~" "$HOME"/.zshrc
