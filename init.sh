@@ -21,7 +21,7 @@ install_packages() {
 
       curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim.appimage
       chmod u+x nvim.appimage
-      ./nvim.appimage --appimage-extract
+      ./nvim.appimage --appimage-extract > /dev/null 2>&1
       sudo mv squashfs-root /
       sudo ln -s /squashfs-root/AppRun /usr/bin/nvim
     else
