@@ -29,6 +29,9 @@ zinit load zsh-users/zsh-completions
 # Load kubectl aliases
 zinit snippet https://raw.githubusercontent.com/ahmetb/kubectl-alias/master/.kubectl_aliases
 
+alias git_current_branch="git rev-parse --abbrev-ref HEAD"
+alias ggpush="git push origin $(git_current_branch)"
+
 # Settings
 DISABLE_MAGIC_FUNCTIONS=true
 DISABLE_UPDATE_PROMPT=true
