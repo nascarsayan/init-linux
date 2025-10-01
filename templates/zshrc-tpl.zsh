@@ -30,11 +30,69 @@ zinit load zsh-users/zsh-completions
 zinit snippet https://raw.githubusercontent.com/ahmetb/kubectl-alias/master/.kubectl_aliases
 
 alias git_current_branch="git rev-parse --abbrev-ref HEAD"
-alias ggpush="git push origin $(git_current_branch)"
+alias ggpush='git push origin $(git_current_branch)'
+alias sshp='SSHPASS="$(pass show ssh/cb)" sshpass -e ssh "$@"'
 
 # Settings
 DISABLE_MAGIC_FUNCTIONS=true
 DISABLE_UPDATE_PROMPT=true
+
+# History configuration
+HISTFILE=~/.zsh_history
+HISTSIZE=10000
+SAVEHIST=10000
+setopt SHARE_HISTORY
+setopt APPEND_HISTORY
+setopt INC_APPEND_HISTORY
+setopt HIST_EXPIRE_DUPS_FIRST
+setopt HIST_IGNORE_DUPS
+setopt HIST_FIND_NO_DUPS
+setopt HIST_REDUCE_BLANKS
+
+# Source omarchy configurations
+source ~/.local/share/omarchy/default/bash/envs
+source ~/.local/share/omarchy/default/bash/aliases
+source ~/.local/share/omarchy/default/bash/functions
+
+# Tool initialization (adapted for zsh)
+if command -v mise &> /dev/null; then
+  eval "$(mise activate zsh)"
+fi
+
+if command -v zoxide &> /dev/null; then
+  eval "$(zoxide init zsh)"
+fi
+
+# FZF integration for zsh
+if command -v fzf &> /dev/null; then
+  if [[ -f /usr/share/fzf/completion.zsh ]]; then
+    source /usr/share/fzf/completion.zsh
+  fi
+  if [[ -f /usr/share/fzf/key-bindings.zsh ]]; then
+    source /usr/share/fzf/key-bindings.zsh
+  fi
+fi
+
+# Additional environment variables from .bashrc
+export BUN_INSTALL="$HOME/.bun"
+export PATH="$BUN_INSTALL/bin:$PATH"
+export GITTOP="/home/sayann/Code/monolith"
+export PYTHONPATH="/home/sayann/Code/monolith/src/cluster_deployment/deployment/"
+
+# Source local bin path
+. "$HOME/.local/bin/env"
+
+# Enable fzf-tab completions
+zinit ice blockf
+zinit light Aloxaf/fzf-tab
+
+zstyle ':completion:*' menu select
+zstyle ':completion:*:descriptions' format '%d'
+zstyle ':fzf-tab:*' switch-group ',' '.'
+
+# Initialize zsh completion system
+autoload -Uz compinit
+compinit
 
 # Enable bash completions
 autoload -U +X bashcompinit && bashcompinit
@@ -42,4 +100,7 @@ autoload -U +X bashcompinit && bashcompinit
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
 
-command -v zoxide > /dev/null && eval "$(zoxide init zsh)"
+[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
+
+bindkey -e
+
