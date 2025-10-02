@@ -7,7 +7,9 @@ RUN dnf update -y \
        gzip \
        git \
        zsh \
+       tmux \
        which \
+       findutils \
     && dnf clean all
 
 COPY scripts/sayann-install.sh /usr/local/src/sayann-install.sh

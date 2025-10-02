@@ -8,6 +8,7 @@ TEMPLATE_ZSHRC="${SCRIPT_DIR}/../templates/zshrc-tpl.zsh"
 TEMPLATE_TMUX="${SCRIPT_DIR}/../templates/tmuxrc-tpl.conf"
 DEFAULT_TEMPLATE_URL="https://raw.githubusercontent.com/nascarsayan/init-linux/zinit/templates/zshrc-tpl.zsh"
 DEFAULT_TMUX_URL="https://raw.githubusercontent.com/nascarsayan/.tmux.local/master/.tmux.conf.local"
+FZF_VERSION="${FZF_VERSION:-0.65.2}"
 
 log() {
   printf '[sayann-install] %s\n' "$*"
@@ -57,6 +58,7 @@ BIN_DIR="${BASE_DIR}/bin"
 CACHE_DIR="${BASE_DIR}/cache"
 ZSH_DIR="${BASE_DIR}/zsh"
 TMUX_DIR="${BASE_DIR}/tmux"
+FZF_DIR="${BASE_DIR}/fzf"
 ZINIT_HOME="${BASE_DIR}/zinit/zinit.git"
 ENV_SCRIPT="${BASE_DIR}/activate.sh"
 PROFILE_SNIPPET="/etc/profile.d/sayann.sh"
@@ -73,7 +75,7 @@ cleanup_environment() {
 }
 
 ensure_dirs() {
-  mkdir -p "$BIN_DIR" "$CACHE_DIR" "$ZSH_DIR" "$TMUX_DIR" "$(dirname "$ZINIT_HOME")"
+  mkdir -p "$BIN_DIR" "$CACHE_DIR" "$ZSH_DIR" "$TMUX_DIR" "$FZF_DIR" "$(dirname "$ZINIT_HOME")"
 }
 
 ensure_command() {
@@ -163,6 +165,26 @@ ensure_zsh() {
         log 'zsh unavailable (no apt/dnf/brew); skipping shell setup'
         return 1
       fi
+      ;;
+  esac
+}
+
+ensure_tmux() {
+  if ensure_command tmux; then
+    return
+  fi
+  log 'tmux not found; attempting installation'
+  detect_pkg_manager
+  case "$pkg_manager" in
+    apt)
+      install_pkg tmux
+      ;;
+    dnf)
+      install_pkg tmux
+      ;;
+    *)
+      log 'tmux unavailable (no apt/dnf); skipping tmux binary install'
+      return 1
       ;;
   esac
 }
@@ -267,8 +289,10 @@ install_fzf() {
     "fzf" \
     "junegunn/fzf" \
     "linux_amd64.*tar.gz" \
-    "https://github.com/junegunn/fzf/releases/download/v0.65.2/fzf-0.65.2-linux_amd64.tar.gz" \
+    "https://github.com/junegunn/fzf/releases/download/v${FZF_VERSION}/fzf-${FZF_VERSION}-linux_amd64.tar.gz" \
     "fzf"
+  curl -fsSL "https://raw.githubusercontent.com/junegunn/fzf/v${FZF_VERSION}/shell/key-bindings.zsh" -o "${FZF_DIR}/key-bindings.zsh" || log 'Warning: unable to fetch fzf key-bindings'
+  curl -fsSL "https://raw.githubusercontent.com/junegunn/fzf/v${FZF_VERSION}/shell/completion.zsh" -o "${FZF_DIR}/completion.zsh" || log 'Warning: unable to fetch fzf completion script'
 }
 
 install_zoxide() {
@@ -281,12 +305,15 @@ install_zoxide() {
 }
 
 write_zshenv() {
-  cat <<EOF >"${ZSH_DIR}/.zshenv"
-export SAYANN_BASE="\${SAYANN_BASE:-${BASE_DIR}}"
-export PATH="\${SAYANN_BASE}/bin:\${PATH}"
-export ZINIT_HOME="\${SAYANN_BASE}/zinit/zinit.git"
-export TMUX_HOME="\${SAYANN_BASE}/tmux"
+  cat <<'EOF' >"${ZSH_DIR}/.zshenv"
+export SAYANN_BASE="${SAYANN_BASE:-__BASE__}"
+export PATH="${SAYANN_BASE}/bin:${PATH}"
+export ZINIT_HOME="${SAYANN_BASE}/zinit/zinit.git"
+export TMUX_HOME="${SAYANN_BASE}/tmux"
+export FZF_HOME="${SAYANN_BASE}/fzf"
+[ -f "${TMUX_HOME}/.tmux.conf" ] && export TMUX_CONF="${TMUX_HOME}/.tmux.conf"
 EOF
+  sed -i "s#__BASE__#${BASE_DIR//\/\\}#" "${ZSH_DIR}/.zshenv"
 }
 
 write_zshrc() {
@@ -363,16 +390,19 @@ install_zinit() {
 }
 
 write_activation_script() {
-  cat <<EOF >"${ENV_SCRIPT}"
+  cat <<'EOF' >"${ENV_SCRIPT}"
 # shellcheck shell=sh
-[ "\${SAYANN_ENV_ACTIVATED:-0}" -eq 1 ] && return 0 2>/dev/null || true
+[ "${SAYANN_ENV_ACTIVATED:-0}" -eq 1 ] && return 0 2>/dev/null || true
 export SAYANN_ENV_ACTIVATED=1
-export SAYANN_BASE="\${SAYANN_BASE:-${BASE_DIR}}"
-export PATH="\${SAYANN_BASE}/bin:\${PATH}"
-export ZDOTDIR="\${SAYANN_BASE}/zsh"
-export ZINIT_HOME="\${SAYANN_BASE}/zinit/zinit.git"
-export TMUX_HOME="\${SAYANN_BASE}/tmux"
+export SAYANN_BASE="${SAYANN_BASE:-__BASE__}"
+export PATH="${SAYANN_BASE}/bin:${PATH}"
+export ZDOTDIR="${SAYANN_BASE}/zsh"
+export ZINIT_HOME="${SAYANN_BASE}/zinit/zinit.git"
+export TMUX_HOME="${SAYANN_BASE}/tmux"
+export FZF_HOME="${SAYANN_BASE}/fzf"
+[ -f "${TMUX_HOME}/.tmux.conf" ] && export TMUX_CONF="${TMUX_HOME}/.tmux.conf"
 EOF
+  sed -i "s#__BASE__#${BASE_DIR//\/\\}#" "$ENV_SCRIPT"
   chmod 0644 "$ENV_SCRIPT"
 }
 
@@ -398,6 +428,7 @@ main() {
   ensure_dirs
   ensure_base_prereqs
   ensure_zsh || log 'zsh setup skipped'
+  ensure_tmux || log 'tmux setup skipped'
   install_crush
   install_croc
   install_codex

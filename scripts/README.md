@@ -40,7 +40,7 @@ source /root/sayann/activate.sh
 zsh -i
 ```
 
-Your binaries live at `/root/sayann/bin`, `ZDOTDIR=/root/sayann/zsh`, and tmux reads from `/root/sayann/tmux`; `command -v crush` (and friends) should resolve there once activated. Other users stay on their stock PATH.
+Your binaries live at `/root/sayann/bin`, `ZDOTDIR=/root/sayann/zsh`, and tmux reads from `/root/sayann/tmux`; `command -v crush` (and friends) should resolve there once activated. `Ctrl-R` in zsh opens the bundled fzf history search, and `tmux` automatically loads the private config. Other users stay on their stock PATH/configs.
 
 ## Testing with Docker
 
@@ -80,6 +80,7 @@ docker stop "$container"
 - `SAYANN_TEMPLATE_URL`: override the remote template URL when the local copy is absent.
 - `SAYANN_TMUX_TEMPLATE_URL`: override the fallback tmux config URL.
 - `SAYANN_ENABLE`: opt-in flag recognised by `/etc/profile.d/sayann.sh` and tests.
+- `FZF_VERSION`: override the fzf release version downloaded into the sandbox.
 
 ## Notes
 

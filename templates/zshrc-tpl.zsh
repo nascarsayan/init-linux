@@ -4,6 +4,7 @@ if [[ -n "${SAYANN_BASE:-}" ]]; then
   export XDG_CONFIG_HOME="${SAYANN_BASE}/zsh/config"
   : "${ZINIT_HOME:=${SAYANN_BASE}/zinit/zinit.git}"
   export TMUX_HOME="${SAYANN_BASE}/tmux"
+  export FZF_HOME="${SAYANN_BASE}/fzf"
 fi
 
 if [[ -r "${SAYANN_BASE}/zsh/cache/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
@@ -75,8 +76,8 @@ if command -v zoxide >/dev/null 2>&1; then
 fi
 
 if command -v fzf >/dev/null 2>&1; then
-  [ -f /usr/share/fzf/completion.zsh ] && source /usr/share/fzf/completion.zsh
-  [ -f /usr/share/fzf/key-bindings.zsh ] && source /usr/share/fzf/key-bindings.zsh
+  [ -f "${FZF_HOME}/completion.zsh" ] && source "${FZF_HOME}/completion.zsh"
+  [ -f "${FZF_HOME}/key-bindings.zsh" ] && source "${FZF_HOME}/key-bindings.zsh"
 fi
 
 BUN_INSTALL="$HOME/.bun"
