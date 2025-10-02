@@ -8,10 +8,11 @@ TEMPLATE_ZSHRC="${SCRIPT_DIR}/../templates/zshrc-tpl.zsh"
 TEMPLATE_TMUX="${SCRIPT_DIR}/../templates/tmuxrc-tpl.conf"
 DEFAULT_TEMPLATE_URL="https://raw.githubusercontent.com/nascarsayan/init-linux/zinit/templates/zshrc-tpl.zsh"
 DEFAULT_TMUX_URL="https://raw.githubusercontent.com/nascarsayan/.tmux.local/master/.tmux.conf.local"
+DEFAULT_P10K_URL="https://raw.githubusercontent.com/nascarsayan/init-linux/zinit/templates/p10k.zsh"
 FZF_VERSION="${FZF_VERSION:-0.65.2}"
 
 log() {
-  printf '[sayann-install] %s\n' "$*"
+  printf '[sandbox-install] %s\n' "$*"
 }
 
 die() {
@@ -21,12 +22,14 @@ die() {
 
 require_root() {
   if [ "$(id -u)" -ne 0 ]; then
-    die 'this installer must run as root (sudo) to manage /root/sayann and profile hooks'
+    die 'this installer must run as root (sudo) to manage sandbox assets and profile hooks'
   fi
 }
 
 # Flags
 CLEANUP_ONLY=0
+NO_SANDBOX=0
+SANDBOX_HOME_ARG=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -34,15 +37,25 @@ while [ $# -gt 0 ]; do
       CLEANUP_ONLY=1
       shift
       ;;
+    --sandbox-dir)
+      SANDBOX_HOME_ARG="$2"
+      shift 2
+      ;;
+    --no-sandbox)
+      NO_SANDBOX=1
+      shift
+      ;;
     --help|-h)
       cat <<'USAGE'
-Usage: sayann-install.sh [--cleanup]
+Usage: sandbox-install.sh [--sandbox-dir <path>] [--no-sandbox] [--cleanup]
 
-  (no flags)   Install the sandboxed environment under /root/sayann
-  --cleanup    Remove /root/sayann and the /etc/profile.d hook, then exit
+  (default)        Install a sandboxed environment under /root/sandbox (or --sandbox-dir)
+  --sandbox-dir    Set an explicit sandbox directory
+  --no-sandbox     Install packages globally via apt/dnf/brew (no sandbox directories)
+  --cleanup        Remove the sandbox directory and profile hook
 
 You can forward flags when piping from curl, e.g.:
-  curl -fsSL <url> | sudo bash -s -- --cleanup
+  curl -fsSL <url> | sudo bash -s -- --sandbox-dir /opt/dev-sandbox
 USAGE
       exit 0
       ;;
@@ -52,16 +65,25 @@ USAGE
   esac
 done
 
-# Base paths (override with SAYANN_BASE_DIR if needed)
-BASE_DIR=${SAYANN_BASE_DIR:-/root/sayann}
+if [ "$NO_SANDBOX" -eq 1 ] && [ "$CLEANUP_ONLY" -eq 1 ]; then
+  die "--cleanup cannot be combined with --no-sandbox"
+fi
+
+DEFAULT_SANDBOX_HOME=/root/sandbox
+SANDBOX_HOME=${SANDBOX_HOME_ARG:-${SANDBOX_HOME:-$DEFAULT_SANDBOX_HOME}}
+SANDBOX_MODE=$(( NO_SANDBOX ? 0 : 1 ))
+
+# Sandbox paths
+BASE_DIR="$SANDBOX_HOME"
 BIN_DIR="${BASE_DIR}/bin"
 CACHE_DIR="${BASE_DIR}/cache"
 ZSH_DIR="${BASE_DIR}/zsh"
 TMUX_DIR="${BASE_DIR}/tmux"
 FZF_DIR="${BASE_DIR}/fzf"
+P10K_DIR="${BASE_DIR}/p10k"
 ZINIT_HOME="${BASE_DIR}/zinit/zinit.git"
 ENV_SCRIPT="${BASE_DIR}/activate.sh"
-PROFILE_SNIPPET="/etc/profile.d/sayann.sh"
+PROFILE_SNIPPET="/etc/profile.d/sandbox.sh"
 
 cleanup_environment() {
   require_root
@@ -75,7 +97,7 @@ cleanup_environment() {
 }
 
 ensure_dirs() {
-  mkdir -p "$BIN_DIR" "$CACHE_DIR" "$ZSH_DIR" "$TMUX_DIR" "$FZF_DIR" "$(dirname "$ZINIT_HOME")"
+  mkdir -p "$BIN_DIR" "$CACHE_DIR" "$ZSH_DIR" "$TMUX_DIR" "$FZF_DIR" "$P10K_DIR" "$(dirname "$ZINIT_HOME")"
 }
 
 ensure_command() {
@@ -106,6 +128,35 @@ install_pkg() {
       ;;
     *)
       die "no supported package manager for installing $*"
+      ;;
+  esac
+}
+
+install_global_packages() {
+  detect_pkg_manager
+  case "$pkg_manager" in
+    apt)
+      for pkg in fzf zoxide tmux; do
+        if ! install_pkg "$pkg"; then
+          log "Warning: unable to install $pkg via apt"
+        fi
+      done
+      ;;
+    dnf)
+      for pkg in fzf zoxide tmux; do
+        if ! install_pkg "$pkg"; then
+          log "Warning: unable to install $pkg via dnf"
+        fi
+      done
+      ;;
+    *)
+      if command -v brew >/dev/null 2>&1; then
+        for pkg in fzf zoxide tmux; do
+          brew install "$pkg" || log "Warning: unable to install $pkg via brew"
+        done
+      else
+        log 'No supported package manager found for --no-sandbox mode'
+      fi
       ;;
   esac
 }
@@ -285,14 +336,27 @@ install_gh() {
 }
 
 install_fzf() {
+  local bin_url="https://github.com/junegunn/fzf/releases/download/v${FZF_VERSION}/fzf-${FZF_VERSION}-linux_amd64.tar.gz"
   install_tar_binary \
     "fzf" \
     "junegunn/fzf" \
     "linux_amd64.*tar.gz" \
-    "https://github.com/junegunn/fzf/releases/download/v${FZF_VERSION}/fzf-${FZF_VERSION}-linux_amd64.tar.gz" \
+    "$bin_url" \
     "fzf"
-  curl -fsSL "https://raw.githubusercontent.com/junegunn/fzf/v${FZF_VERSION}/shell/key-bindings.zsh" -o "${FZF_DIR}/key-bindings.zsh" || log 'Warning: unable to fetch fzf key-bindings'
-  curl -fsSL "https://raw.githubusercontent.com/junegunn/fzf/v${FZF_VERSION}/shell/completion.zsh" -o "${FZF_DIR}/completion.zsh" || log 'Warning: unable to fetch fzf completion script'
+  local shell_archive="$CACHE_DIR/fzf-shell.tar.gz"
+  if curl -fsSL "https://github.com/junegunn/fzf/archive/refs/tags/v${FZF_VERSION}.tar.gz" -o "$shell_archive"; then
+    local tmp extracted_dir
+    tmp=$(mktemp -d)
+    tar -xzf "$shell_archive" -C "$tmp"
+    extracted_dir=$(find "$tmp" -maxdepth 1 -type d -name "fzf-*" | head -n 1)
+    if [ -n "$extracted_dir" ]; then
+      [ -f "$extracted_dir/shell/key-bindings.zsh" ] && cp "$extracted_dir/shell/key-bindings.zsh" "${FZF_DIR}/key-bindings.zsh"
+      [ -f "$extracted_dir/shell/completion.zsh" ] && cp "$extracted_dir/shell/completion.zsh" "${FZF_DIR}/completion.zsh"
+    fi
+    rm -rf "$tmp" "$shell_archive"
+  else
+    log 'Warning: unable to fetch fzf shell scripts archive'
+  fi
 }
 
 install_zoxide() {
@@ -306,12 +370,13 @@ install_zoxide() {
 
 write_zshenv() {
   cat <<'EOF' >"${ZSH_DIR}/.zshenv"
-export SAYANN_BASE="${SAYANN_BASE:-__BASE__}"
-export PATH="${SAYANN_BASE}/bin:${PATH}"
-export ZINIT_HOME="${SAYANN_BASE}/zinit/zinit.git"
-export TMUX_HOME="${SAYANN_BASE}/tmux"
-export FZF_HOME="${SAYANN_BASE}/fzf"
+export SANDBOX_HOME="${SANDBOX_HOME:-__BASE__}"
+export PATH="${SANDBOX_HOME}/bin:${PATH}"
+export ZINIT_HOME="${SANDBOX_HOME}/zinit/zinit.git"
+export TMUX_HOME="${SANDBOX_HOME}/tmux"
+export FZF_HOME="${SANDBOX_HOME}/fzf"
 [ -f "${TMUX_HOME}/.tmux.conf" ] && export TMUX_CONF="${TMUX_HOME}/.tmux.conf"
+[ -r "${SANDBOX_HOME}/p10k/p10k.zsh" ] && export P10K_CONFIG="${SANDBOX_HOME}/p10k/p10k.zsh"
 EOF
   sed -i "s#__BASE__#${BASE_DIR//\/\\}#" "${ZSH_DIR}/.zshenv"
 }
@@ -323,7 +388,7 @@ write_zshrc() {
     return
   fi
 
-  local template_url="${SAYANN_TEMPLATE_URL:-$DEFAULT_TEMPLATE_URL}"
+  local template_url="${SANDBOX_TEMPLATE_URL:-$DEFAULT_TEMPLATE_URL}"
   if curl -fsSL "$template_url" -o "${ZSH_DIR}/.zshrc"; then
     chmod 0644 "${ZSH_DIR}/.zshrc"
     log "Fetched zsh template from ${template_url}"
@@ -331,8 +396,8 @@ write_zshrc() {
   else
     log "Zsh template not found at ${TEMPLATE_ZSHRC} and download failed from ${template_url}; writing minimal config"
     cat <<'EOF' >"${ZSH_DIR}/.zshrc"
-if [ -n "${SAYANN_BASE:-}" ] && [ -f "${SAYANN_BASE}/zinit/zinit.git/zinit.zsh" ]; then
-  source "${SAYANN_BASE}/zinit/zinit.git/zinit.zsh"
+if [ -n "${SANDBOX_HOME:-}" ] && [ -f "${SANDBOX_HOME}/zinit/zinit.git/zinit.zsh" ]; then
+  source "${SANDBOX_HOME}/zinit/zinit.git/zinit.zsh"
 fi
 EOF
   fi
@@ -344,6 +409,14 @@ setup_zsh_files() {
   mkdir -p "${ZSH_DIR}/cache" "${ZSH_DIR}/config"
   touch "${ZSH_DIR}/.zsh_history"
   log "Wrote ZDOTDIR configuration under ${ZSH_DIR}"
+  if [ ! -f "${P10K_DIR}/p10k.zsh" ]; then
+    if [ -f "${SCRIPT_DIR}/../templates/p10k.zsh" ]; then
+      cp "${SCRIPT_DIR}/../templates/p10k.zsh" "${P10K_DIR}/p10k.zsh"
+    else
+      local p10k_url="${SANDBOX_P10K_TEMPLATE_URL:-$DEFAULT_P10K_URL}"
+      curl -fsSL "$p10k_url" -o "${P10K_DIR}/p10k.zsh" || log "Warning: unable to fetch p10k template from ${p10k_url}"
+    fi
+  fi
 }
 
 install_tmux_local() {
@@ -362,7 +435,7 @@ setup_tmux_files() {
     cp "$TEMPLATE_TMUX" "$target_conf"
     chmod 0644 "$target_conf"
   else
-    local tmux_url="${SAYANN_TMUX_TEMPLATE_URL:-$DEFAULT_TMUX_URL}"
+    local tmux_url="${SANDBOX_TMUX_TEMPLATE_URL:-$DEFAULT_TMUX_URL}"
     if curl -fsSL "$tmux_url" -o "$target_conf"; then
       chmod 0644 "$target_conf"
       log "Fetched tmux template from ${tmux_url}"
@@ -392,15 +465,16 @@ install_zinit() {
 write_activation_script() {
   cat <<'EOF' >"${ENV_SCRIPT}"
 # shellcheck shell=sh
-[ "${SAYANN_ENV_ACTIVATED:-0}" -eq 1 ] && return 0 2>/dev/null || true
-export SAYANN_ENV_ACTIVATED=1
-export SAYANN_BASE="${SAYANN_BASE:-__BASE__}"
-export PATH="${SAYANN_BASE}/bin:${PATH}"
-export ZDOTDIR="${SAYANN_BASE}/zsh"
-export ZINIT_HOME="${SAYANN_BASE}/zinit/zinit.git"
-export TMUX_HOME="${SAYANN_BASE}/tmux"
-export FZF_HOME="${SAYANN_BASE}/fzf"
+[ "${SANDBOX_ENV_ACTIVATED:-0}" -eq 1 ] && return 0 2>/dev/null || true
+export SANDBOX_ENV_ACTIVATED=1
+export SANDBOX_HOME="${SANDBOX_HOME:-__BASE__}"
+export PATH="${SANDBOX_HOME}/bin:${PATH}"
+export ZDOTDIR="${SANDBOX_HOME}/zsh"
+export ZINIT_HOME="${SANDBOX_HOME}/zinit/zinit.git"
+export TMUX_HOME="${SANDBOX_HOME}/tmux"
+export FZF_HOME="${SANDBOX_HOME}/fzf"
 [ -f "${TMUX_HOME}/.tmux.conf" ] && export TMUX_CONF="${TMUX_HOME}/.tmux.conf"
+[ -r "${SANDBOX_HOME}/p10k/p10k.zsh" ] && export P10K_CONFIG="${SANDBOX_HOME}/p10k/p10k.zsh"
 EOF
   sed -i "s#__BASE__#${BASE_DIR//\/\\}#" "$ENV_SCRIPT"
   chmod 0644 "$ENV_SCRIPT"
@@ -409,7 +483,7 @@ EOF
 write_profile_snippet() {
   cat <<EOF >"${PROFILE_SNIPPET}"
 # shellcheck shell=sh
-if [ -z "\${SAYANN_ENABLE:-}" ]; then
+if [ -z "\${SANDBOX_ENABLE:-}" ]; then
   return 0 2>/dev/null || true
 fi
 if [ -f "${BASE_DIR}/activate.sh" ]; then
@@ -421,6 +495,14 @@ EOF
 
 main() {
   require_root
+  if [ "$NO_SANDBOX" -eq 1 ]; then
+    ensure_base_prereqs
+    ensure_zsh || log 'zsh installation skipped (not available)'
+    ensure_tmux || log 'tmux installation skipped (not available)'
+    install_global_packages
+    log 'Global installation completed.'
+    return
+  fi
   if [ "$CLEANUP_ONLY" -eq 1 ]; then
     cleanup_environment
     return
@@ -440,7 +522,7 @@ main() {
   setup_tmux_files
   write_activation_script
   write_profile_snippet
-  log 'Installation complete. Enable with SAYANN_ENABLE=1 when connecting via SSH.'
+  log 'Installation complete. Enable with SANDBOX_ENABLE=1 when connecting via SSH.'
 }
 
 main "$@"

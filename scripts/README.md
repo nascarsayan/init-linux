@@ -1,91 +1,98 @@
-# sayann-install.sh usage
+# sandbox-install.sh usage
 
-This directory contains the `sayann-install.sh` bootstrap which provisions a lightweight, opt-in shell environment under `/root/sayann`. You can run it individually or stream it via `curl | bash`. The shell integration only activates when `SAYANN_ENABLE=1` is present, so other users on the box remain unaffected.
+`sandbox-install.sh` bootstraps a self-contained shell environment under `/root/sandbox` by default. You can run it directly from this repository or stream it via `curl | bash`. The sandbox stays opt‑in: it only activates for sessions where `SANDBOX_ENABLE=1` is present, so other users on the machine remain unaffected.
 
 ## Quickstart
 
 ```bash
-# Run locally
-sudo scripts/sayann-install.sh
+# Run locally (sandboxed)
+sudo scripts/sandbox-install.sh
 
 # Or curl | bash (requires root)
-curl -fsSL https://raw.githubusercontent.com/nascarsayan/init-linux/zinit/scripts/sayann-install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/nascarsayan/init-linux/zinit/scripts/sandbox-install.sh | sudo bash
 
-# Remove everything later
-curl -fsSL https://raw.githubusercontent.com/nascarsayan/init-linux/zinit/scripts/sayann-install.sh | sudo bash -s -- --cleanup
+# Remove the sandbox later
+curl -fsSL https://raw.githubusercontent.com/nascarsayan/init-linux/zinit/scripts/sandbox-install.sh | sudo bash -s -- --cleanup
 # or
-sudo scripts/sayann-install.sh --cleanup
+sudo scripts/sandbox-install.sh --cleanup
+
+# Install to a custom sandbox directory
+sudo scripts/sandbox-install.sh --sandbox-dir /opt/dev-sandbox
+
+# Package-manager only install (no sandbox assets)
+sudo scripts/sandbox-install.sh --no-sandbox
 ```
 
-## What the installer does
+## What the installer does (sandbox mode)
 
-- Creates `/root/sayann` with `bin`, `cache`, `zsh`, and `zinit` subdirectories.
-- Downloads static binaries (crush, croc, codex, gh, fzf, zoxide) into `/root/sayann/bin`, falling back to pinned versions when rate-limited.
-- Installs zinit under `/root/sayann/zinit` without touching other users.
-- Copies `templates/zshrc-tpl.zsh` into `/root/sayann/zsh/.zshrc`. If the file is missing locally, the script fetches it from GitHub (`DEFAULT_TEMPLATE_URL`) or writes a minimal stub.
-- Clones tmux configs (`gpakosz/.tmux` and `nascarsayan/.tmux.local`) under `/root/sayann/tmux` and keeps them sandboxed.
-- Writes `/root/sayann/activate.sh` and `/etc/profile.d/sayann.sh`. Activation only happens when `SAYANN_ENABLE=1` is set.
+- Creates `/root/sandbox` with `bin`, `cache`, `zsh`, `zinit`, `tmux`, `fzf`, and `p10k` subdirectories.
+- Downloads static binaries (crush, croc, codex, gh, fzf, zoxide) into `/root/sandbox/bin`, falling back to pinned versions when GitHub rate-limits.
+- Installs zinit under `/root/sandbox/zinit` without touching other users.
+- Copies `templates/zshrc-tpl.zsh` into `/root/sandbox/zsh/.zshrc`. If the file is missing locally, it falls back to the remote template or a minimal stub.
+- Clones `gpakosz/.tmux` and `nascarsayan/.tmux.local` under `/root/sandbox/tmux`, wiring tmux to use those configs only when the sandbox is active.
+- Drops your Powerlevel10k profile into `/root/sandbox/p10k/p10k.zsh`, so the wizard never appears.
+- Writes `/root/sandbox/activate.sh` and `/etc/profile.d/sandbox.sh`. Activation only happens when `SANDBOX_ENABLE=1` is present in the environment.
+
+With `--no-sandbox`, the script simply ensures `zsh`, `tmux`, `fzf`, and `zoxide` are installed through the system package manager (apt/dnf/brew) and exits—no sandbox directories or profile hooks are created.
 
 ## Using the environment
 
 ```bash
-# Opt-in when SSHing
-SAYANN_ENABLE=1 ssh root@host
+# Opt in when SSHing
+SANDBOX_ENABLE=1 ssh root@host
 
-# Or enable in an existing session
-export SAYANN_ENABLE=1
-source /root/sayann/activate.sh
+# Or enable the sandbox in an existing shell
+export SANDBOX_ENABLE=1
+source /root/sandbox/activate.sh
 
-# Jump into the zsh profile
+# Jump into the sandboxed zsh profile
 zsh -i
 ```
 
-Your binaries live at `/root/sayann/bin`, `ZDOTDIR=/root/sayann/zsh`, and tmux reads from `/root/sayann/tmux`; `command -v crush` (and friends) should resolve there once activated. `Ctrl-R` in zsh opens the bundled fzf history search, and `tmux` automatically loads the private config. Other users stay on their stock PATH/configs.
+Once activated, binaries reside in `/root/sandbox/bin`, `ZDOTDIR=/root/sandbox/zsh`, tmux reads `/root/sandbox/tmux/.tmux.conf`, and `Ctrl-R` is backed by the sandboxed fzf bindings. Other users stay on their stock PATH/configs.
 
 ## Testing with Docker
 
-A Rocky Linux 8 harness lives under `docker/rocky8/`.
+The `docker/rocky8/` harness exercises the installer on Rocky Linux 8.
 
 ```bash
 # Build the test image
-docker build -t sayann/init-rocky8 -f docker/rocky8/Dockerfile .
+docker build -t sandbox/init-rocky8 -f docker/rocky8/Dockerfile .
 
 # Run the installer once
-docker run --rm sayann/init-rocky8 bash -lc '/usr/local/src/sayann-install.sh'
+docker run --rm sandbox/init-rocky8 bash -lc '/usr/local/src/sandbox-install.sh'
 
 # Inspect the generated config
-docker run --rm sayann/init-rocky8 bash -lc 'ls /root/sayann/zsh && head -n 10 /root/sayann/zsh/.zshrc'
+docker run --rm sandbox/init-rocky8 bash -lc 'ls /root/sandbox/zsh && head -n 10 /root/sandbox/zsh/.zshrc'
 
-# Exercise the shell interactively (first run downloads zinit plugins)
-docker run --rm -it -e SAYANN_ENABLE=1 \
-  sayann/init-rocky8 bash -lc '/usr/local/src/sayann-install.sh && source /root/sayann/activate.sh && exec zsh -i'
+# Exercise the shell interactively (first run fetches zinit plugins)
+docker run --rm -it -e SANDBOX_ENABLE=1 \
+  sandbox/init-rocky8 bash -lc '/usr/local/src/sandbox-install.sh && source /root/sandbox/activate.sh && exec zsh -i'
 
 # Two-step workflow
-container=sayann-test
+container=sandbox-test
 
-# Install once and keep the container running
-docker run -d --rm --name "$container" -e SAYANN_ENABLE=1 \
-  sayann/init-rocky8 bash -lc '/usr/local/src/sayann-install.sh && tail -f /dev/null'
+docker run -d --rm --name "$container" -e SANDBOX_ENABLE=1 \
+  sandbox/init-rocky8 bash -lc '/usr/local/src/sandbox-install.sh && tail -f /dev/null'
 
-# Inspect PATH/ZDOTDIR/TMUX and binaries
-docker exec "$container" bash -lc 'source /root/sayann/activate.sh && echo PATH=$PATH && echo ZDOTDIR=$ZDOTDIR && echo TMUX_CONF=$TMUX_CONF && command -v crush croc codex gh fzf zoxide'
+docker exec "$container" bash -lc 'source /root/sandbox/activate.sh && echo PATH=$PATH && echo ZDOTDIR=$ZDOTDIR && echo TMUX_CONF=$TMUX_CONF && command -v crush croc codex gh fzf zoxide tmux && ls -A /root/sandbox/p10k'
 
-# Tear down
 docker stop "$container"
 ```
 
 ## Config knobs
 
-- `SAYANN_BASE_DIR`: install root (defaults to `/root/sayann`).
-- `SAYANN_TEMPLATE_URL`: override the remote template URL when the local copy is absent.
-- `SAYANN_TMUX_TEMPLATE_URL`: override the fallback tmux config URL.
-- `SAYANN_ENABLE`: opt-in flag recognised by `/etc/profile.d/sayann.sh` and tests.
+- `SANDBOX_HOME`: install root (defaults to `/root/sandbox`).
+- `SANDBOX_TEMPLATE_URL`: override the remote `.zshrc` template URL when the local copy is absent.
+- `SANDBOX_TMUX_TEMPLATE_URL`: override the fallback tmux config URL.
+- `SANDBOX_P10K_TEMPLATE_URL`: override the fallback Powerlevel10k config URL.
+- `SANDBOX_ENABLE`: opt-in flag honoured by `/etc/profile.d/sandbox.sh` and tests.
 - `FZF_VERSION`: override the fzf release version downloaded into the sandbox.
 
 ## Notes
 
-- The script requires root (writes under `/root` and `/etc/profile.d`).
-- Re-running the installer is idempotent; binaries are overwritten in place, templates re-copied.
+- Sandbox mode requires root (it writes under `/root` and `/etc/profile.d`).
+- Re-running the sandbox installer is idempotent; binaries are overwritten in place and configs re-copied.
 - GitHub API calls may rate-limit; pinned release URLs are provided for the required tools.
-- The default shell is never changed; activation only happens for sessions that set `SAYANN_ENABLE=1`.
-- Pass `--cleanup` to remove `/root/sayann` and `/etc/profile.d/sayann.sh` if you need to roll back.
+- The default shell is never changed; activation only happens for sessions that set `SANDBOX_ENABLE=1`.
+- Pass `--cleanup` to remove `/root/sandbox` and `/etc/profile.d/sandbox.sh` if you need to roll back.
