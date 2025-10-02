@@ -13,14 +13,12 @@ curl -fsSL https://raw.githubusercontent.com/nascarsayan/init-linux/zinit/script
 
 # Remove the sandbox later
 curl -fsSL https://raw.githubusercontent.com/nascarsayan/init-linux/zinit/scripts/sandbox-install.sh | sudo bash -s -- --cleanup
-# or
-sudo scripts/sandbox-install.sh --cleanup
 
 # Install to a custom sandbox directory
-sudo scripts/sandbox-install.sh --sandbox-dir /opt/dev-sandbox
+curl -fsSL https://raw.githubusercontent.com/nascarsayan/init-linux/zinit/scripts/sandbox-install.sh | sudo bash -s -- --sandbox-dir /opt/dev-sandbox
 
 # Package-manager only install (no sandbox assets)
-sudo scripts/sandbox-install.sh --no-sandbox
+curl -fsSL https://raw.githubusercontent.com/nascarsayan/init-linux/zinit/scripts/sandbox-install.sh | sudo bash -s -- --no-sandbox
 ```
 
 ## What the installer does (sandbox mode)
@@ -49,7 +47,17 @@ source /root/sandbox/activate.sh
 zsh -i
 ```
 
-Once activated, binaries reside in `/root/sandbox/bin`, `ZDOTDIR=/root/sandbox/zsh`, tmux reads `/root/sandbox/tmux/.tmux.conf`, and `Ctrl-R` is backed by the sandboxed fzf bindings. Other users stay on their stock PATH/configs.
+Once activated, binaries reside in `/root/sandbox/bin`, `ZDOTDIR=/root/sandbox/zsh`, tmux reads `/root/sandbox/tmux/.tmux.conf`, and `Ctrl-R` is backed by the sandboxed fzf bindings. Other users stay on their stock PATH/configs. You can also launch the sandbox directly via `/root/sandbox/bin/sandbox-login`, which runs `activate.sh` and drops you into `zsh -il`.
+
+Example SSH config entry:
+
+```ssh-config
+Host sandbox
+  HostName <server>
+  User root
+  RemoteCommand /root/sandbox/bin/sandbox-login
+  RequestTTY force
+```
 
 ## Testing with Docker
 
@@ -82,7 +90,7 @@ docker stop "$container"
 
 ## Config knobs
 
-- `SANDBOX_HOME`: install root (defaults to `/root/sandbox`).
+- `SANDBOX_HOME` / `--sandbox-dir`: install root (defaults to `/root/sandbox`).
 - `SANDBOX_TEMPLATE_URL`: override the remote `.zshrc` template URL when the local copy is absent.
 - `SANDBOX_TMUX_TEMPLATE_URL`: override the fallback tmux config URL.
 - `SANDBOX_P10K_TEMPLATE_URL`: override the fallback Powerlevel10k config URL.

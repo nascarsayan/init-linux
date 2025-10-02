@@ -419,6 +419,23 @@ setup_zsh_files() {
   fi
 }
 
+write_login_wrapper() {
+  local wrapper="${BIN_DIR}/sandbox-login"
+  cat <<'EOF' >"$wrapper"
+#!/usr/bin/env bash
+set -e
+SANDBOX_HOME="${SANDBOX_HOME:-__BASE__}"
+if [ -f "${SANDBOX_HOME}/activate.sh" ]; then
+  # shellcheck disable=SC1090
+  source "${SANDBOX_HOME}/activate.sh"
+fi
+exec zsh -il "$@"
+EOF
+  sed -i "s#__BASE__#${BASE_DIR//\\/\\\\}#" "$wrapper"
+  chmod +x "$wrapper"
+  log "Created sandbox login wrapper at ${wrapper}"
+}
+
 install_tmux_local() {
   if ! ensure_command git; then
     log 'Git not available; skipping tmux repo clone'
@@ -521,6 +538,7 @@ main() {
   setup_zsh_files
   setup_tmux_files
   write_activation_script
+  write_login_wrapper
   write_profile_snippet
   log 'Installation complete. Enable with SANDBOX_ENABLE=1 when connecting via SSH.'
 }
