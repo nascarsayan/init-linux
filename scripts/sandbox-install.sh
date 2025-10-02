@@ -540,7 +540,7 @@ main() {
   write_activation_script
   write_login_wrapper
   write_profile_snippet
-  log 'Installation complete. Enable with SANDBOX_ENABLE=1 when connecting via SSH.'
+  log 'Installation complete. Use /root/sandbox/bin/sandbox-login (e.g. via SSH RemoteCommand) or source /root/sandbox/activate.sh manually.'
 }
 
 main "$@"
