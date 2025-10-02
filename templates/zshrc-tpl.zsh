@@ -1,16 +1,26 @@
-# Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.
-if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
-  source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
+if [[ -n "${SAYANN_BASE:-}" ]]; then
+  export XDG_CACHE_HOME="${SAYANN_BASE}/zsh/cache"
+  export XDG_DATA_HOME="${SAYANN_BASE}/zinit"
+  export XDG_CONFIG_HOME="${SAYANN_BASE}/zsh/config"
+  : "${ZINIT_HOME:=${SAYANN_BASE}/zinit/zinit.git}"
+  export TMUX_HOME="${SAYANN_BASE}/tmux"
 fi
 
-# Zinit installation
-ZINIT_HOME="${XDG_DATA_HOME:-${HOME}/.local/share}/zinit/zinit.git"
+if [[ -r "${SAYANN_BASE}/zsh/cache/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
+  source "${SAYANN_BASE}/zsh/cache/p10k-instant-prompt-${(%):-%n}.zsh"
+fi
+
 source "${ZINIT_HOME}/zinit.zsh"
 
-# Load powerlevel10k theme
-zinit ice depth=1; zinit load romkatv/powerlevel10k
+autoload -Uz is-at-least
+if is-at-least 5.1 "$ZSH_VERSION"; then
+  export POWERLEVEL10K_DISABLE_CONFIGURATION_WIZARD=1
+  zinit ice depth=1
+  zinit load romkatv/powerlevel10k
+else
+  print -P "%F{yellow}[sayann]%f Skipping powerlevel10k (needs zsh>=5.1, current $ZSH_VERSION)."
+fi
 
-# Oh My Zsh plugins
 zinit snippet OMZ::plugins/git/git.plugin.zsh
 zinit snippet OMZ::plugins/sudo/sudo.plugin.zsh
 zinit snippet OMZ::plugins/colored-man-pages/colored-man-pages.plugin.zsh
@@ -21,24 +31,25 @@ zinit snippet OMZ::plugins/helm/helm.plugin.zsh
 zinit snippet OMZ::plugins/vscode/vscode.plugin.zsh
 zinit snippet OMZ::plugins/git-extras/git-extras.plugin.zsh
 
-# Load zsh-users plugins
 zinit load zsh-users/zsh-autosuggestions
 zinit load zsh-users/zsh-syntax-highlighting
 zinit load zsh-users/zsh-completions
 
-# Load kubectl aliases
 zinit snippet https://raw.githubusercontent.com/ahmetb/kubectl-alias/master/.kubectl_aliases
 
 alias git_current_branch="git rev-parse --abbrev-ref HEAD"
 alias ggpush='git push origin $(git_current_branch)'
-alias sshp='SSHPASS="$(pass show ssh/cb)" sshpass -e ssh "$@"'
 
-# Settings
+if command -v pass >/dev/null 2>&1; then
+  sshp() {
+    SSHPASS="$(pass show ssh/cb)" sshpass -e ssh "$@"
+  }
+fi
+
 DISABLE_MAGIC_FUNCTIONS=true
 DISABLE_UPDATE_PROMPT=true
 
-# History configuration
-HISTFILE=~/.zsh_history
+HISTFILE="${SAYANN_BASE}/zsh/.zsh_history"
 HISTSIZE=10000
 SAVEHIST=10000
 setopt SHARE_HISTORY
@@ -49,40 +60,39 @@ setopt HIST_IGNORE_DUPS
 setopt HIST_FIND_NO_DUPS
 setopt HIST_REDUCE_BLANKS
 
-# Source omarchy configurations
-source ~/.local/share/omarchy/default/bash/envs
-source ~/.local/share/omarchy/default/bash/aliases
-source ~/.local/share/omarchy/default/bash/functions
+for file in "$HOME/.local/share/omarchy/default/bash/envs" \
+            "$HOME/.local/share/omarchy/default/bash/aliases" \
+            "$HOME/.local/share/omarchy/default/bash/functions"; do
+  [ -f "$file" ] && source "$file"
+done
 
-# Tool initialization (adapted for zsh)
-if command -v mise &> /dev/null; then
+if command -v mise >/dev/null 2>&1; then
   eval "$(mise activate zsh)"
 fi
 
-if command -v zoxide &> /dev/null; then
+if command -v zoxide >/dev/null 2>&1; then
   eval "$(zoxide init zsh)"
 fi
 
-# FZF integration for zsh
-if command -v fzf &> /dev/null; then
-  if [[ -f /usr/share/fzf/completion.zsh ]]; then
-    source /usr/share/fzf/completion.zsh
-  fi
-  if [[ -f /usr/share/fzf/key-bindings.zsh ]]; then
-    source /usr/share/fzf/key-bindings.zsh
-  fi
+if command -v fzf >/dev/null 2>&1; then
+  [ -f /usr/share/fzf/completion.zsh ] && source /usr/share/fzf/completion.zsh
+  [ -f /usr/share/fzf/key-bindings.zsh ] && source /usr/share/fzf/key-bindings.zsh
 fi
 
-# Additional environment variables from .bashrc
-export BUN_INSTALL="$HOME/.bun"
-export PATH="$BUN_INSTALL/bin:$PATH"
-export GITTOP="/home/sayann/Code/monolith"
-export PYTHONPATH="/home/sayann/Code/monolith/src/cluster_deployment/deployment/"
+BUN_INSTALL="$HOME/.bun"
+PATH="$BUN_INSTALL/bin:$PATH"
+GITTOP="/home/sayann/Code/monolith"
+PYTHONPATH="/home/sayann/Code/monolith/src/cluster_deployment/deployment/"
+export BUN_INSTALL PATH GITTOP PYTHONPATH
 
-# Source local bin path
-. "$HOME/.local/bin/env"
+[ -f "$HOME/.local/bin/env" ] && . "$HOME/.local/bin/env"
 
-# Enable fzf-tab completions
+export TMUX_CONFIG="${TMUX_HOME}/.tmux.conf"
+if command -v tmux >/dev/null 2>&1 && [ -f "$TMUX_CONFIG" ]; then
+  export TMUX_CONF="$TMUX_CONFIG"
+  alias tmux="tmux -f $TMUX_CONFIG"
+fi
+
 zinit ice blockf
 zinit light Aloxaf/fzf-tab
 
@@ -90,17 +100,12 @@ zstyle ':completion:*' menu select
 zstyle ':completion:*:descriptions' format '%d'
 zstyle ':fzf-tab:*' switch-group ',' '.'
 
-# Initialize zsh completion system
 autoload -Uz compinit
 compinit
 
-# Enable bash completions
 autoload -U +X bashcompinit && bashcompinit
 
-# To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
-[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
-
-[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
+[[ ! -f "${SAYANN_BASE}/zsh/.p10k.zsh" ]] || source "${SAYANN_BASE}/zsh/.p10k.zsh"
+[ -f "$HOME/.fzf.zsh" ] && source "$HOME/.fzf.zsh"
 
 bindkey -e
-
