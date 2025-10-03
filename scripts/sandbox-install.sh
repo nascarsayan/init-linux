@@ -423,6 +423,16 @@ install_sysz() {
   log "Installed sysz to ${target}"
 }
 
+install_yq() {
+  local target="$BIN_DIR/yq"
+  curl -fsSL "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64" -o "$target" || {
+    log 'Warning: unable to download yq binary'
+    return
+  }
+  chmod +x "$target"
+  log "Installed yq to ${target}"
+}
+
 write_zshenv() {
   cat <<'EOF' >"${ZSH_DIR}/.zshenv"
 export SANDBOX_HOME="${SANDBOX_HOME:-__BASE__}"
@@ -599,6 +609,7 @@ main() {
   install_kubecolor
   install_krew
   install_sysz
+  install_yq
   install_zinit
   setup_zsh_files
   setup_tmux_files
