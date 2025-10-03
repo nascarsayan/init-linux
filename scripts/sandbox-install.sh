@@ -81,6 +81,7 @@ ZSH_DIR="${BASE_DIR}/zsh"
 TMUX_DIR="${BASE_DIR}/tmux"
 FZF_DIR="${BASE_DIR}/fzf"
 P10K_DIR="${BASE_DIR}/p10k"
+KREW_DIR="${BASE_DIR}/krew"
 ZINIT_HOME="${BASE_DIR}/zinit/zinit.git"
 ENV_SCRIPT="${BASE_DIR}/activate.sh"
 PROFILE_SNIPPET="/etc/profile.d/sandbox.sh"
@@ -97,7 +98,7 @@ cleanup_environment() {
 }
 
 ensure_dirs() {
-  mkdir -p "$BIN_DIR" "$CACHE_DIR" "$ZSH_DIR" "$TMUX_DIR" "$FZF_DIR" "$P10K_DIR" "$(dirname "$ZINIT_HOME")"
+  mkdir -p "$BIN_DIR" "$CACHE_DIR" "$ZSH_DIR" "$TMUX_DIR" "$FZF_DIR" "$P10K_DIR" "$KREW_DIR" "$(dirname "$ZINIT_HOME")"
 }
 
 ensure_command() {
@@ -368,6 +369,46 @@ install_zoxide() {
     "zoxide"
 }
 
+install_k9s() {
+  install_tar_binary \
+    "k9s" \
+    "derailed/k9s" \
+    "Linux_amd64.*tar.gz" \
+    "https://github.com/derailed/k9s/releases/download/v0.50.13/k9s_Linux_amd64.tar.gz" \
+    "k9s"
+}
+
+install_kubecolor() {
+  install_tar_binary \
+    "kubecolor" \
+    "kubecolor/kubecolor" \
+    "linux_amd64.*tar.gz" \
+    "https://github.com/kubecolor/kubecolor/releases/download/v0.5.2/kubecolor_0.5.2_linux_amd64.tar.gz" \
+    "kubecolor"
+}
+
+install_krew() {
+  local os="linux"
+  local arch="amd64"
+  local archive="$CACHE_DIR/krew.tar.gz"
+  local krew_root="$KREW_DIR"
+  curl -fsSL "https://github.com/kubernetes-sigs/krew/releases/latest/download/krew-${os}_${arch}.tar.gz" -o "$archive" || {
+    log 'Warning: unable to download krew archive'
+    return
+  }
+  local tmp
+  tmp=$(mktemp -d)
+  tar -xzf "$archive" -C "$tmp"
+  if [ ! -x "$tmp/krew-${os}_${arch}" ]; then
+    log 'Warning: krew executable not found after extraction'
+    rm -rf "$tmp" "$archive"
+    return
+  fi
+  KREW_ROOT="$krew_root" KREW_HOME="$krew_root" "${tmp}/krew-${os}_${arch}" install krew >/dev/null 2>&1 || log 'Warning: failed to bootstrap krew'
+  rm -rf "$tmp" "$archive"
+  log "Installed krew under ${krew_root}"
+}
+
 write_zshenv() {
   cat <<'EOF' >"${ZSH_DIR}/.zshenv"
 export SANDBOX_HOME="${SANDBOX_HOME:-__BASE__}"
@@ -377,6 +418,9 @@ export TMUX_HOME="${SANDBOX_HOME}/tmux"
 export FZF_HOME="${SANDBOX_HOME}/fzf"
 [ -f "${TMUX_HOME}/.tmux.conf" ] && export TMUX_CONF="${TMUX_HOME}/.tmux.conf"
 [ -r "${SANDBOX_HOME}/p10k/p10k.zsh" ] && export P10K_CONFIG="${SANDBOX_HOME}/p10k/p10k.zsh"
+export KREW_ROOT="${SANDBOX_HOME}/krew"
+export KREW_HOME="${KREW_ROOT}"
+export PATH="${KREW_ROOT}/bin:${PATH}"
 EOF
   sed -i "s#__BASE__#${BASE_DIR//\/\\}#" "${ZSH_DIR}/.zshenv"
 }
@@ -492,6 +536,9 @@ export TMUX_HOME="${SANDBOX_HOME}/tmux"
 export FZF_HOME="${SANDBOX_HOME}/fzf"
 [ -f "${TMUX_HOME}/.tmux.conf" ] && export TMUX_CONF="${TMUX_HOME}/.tmux.conf"
 [ -r "${SANDBOX_HOME}/p10k/p10k.zsh" ] && export P10K_CONFIG="${SANDBOX_HOME}/p10k/p10k.zsh"
+export KREW_ROOT="${SANDBOX_HOME}/krew"
+export KREW_HOME="${KREW_ROOT}"
+export PATH="${KREW_ROOT}/bin:${PATH}"
 EOF
   sed -i "s#__BASE__#${BASE_DIR//\/\\}#" "$ENV_SCRIPT"
   chmod 0644 "$ENV_SCRIPT"
@@ -534,6 +581,9 @@ main() {
   install_gh
   install_fzf
   install_zoxide
+  install_k9s
+  install_kubecolor
+  install_krew
   install_zinit
   setup_zsh_files
   setup_tmux_files

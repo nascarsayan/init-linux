@@ -24,11 +24,12 @@ curl -fsSL https://raw.githubusercontent.com/nascarsayan/init-linux/zinit/script
 ## What the installer does (sandbox mode)
 
 - Creates `/root/sandbox` with `bin`, `cache`, `zsh`, `zinit`, `tmux`, `fzf`, and `p10k` subdirectories.
-- Downloads static binaries (crush, croc, codex, gh, fzf, zoxide) into `/root/sandbox/bin`, falling back to pinned versions when GitHub rate-limits.
+- Downloads static binaries (crush, croc, codex, gh, fzf, zoxide, k9s, kubecolor) into `/root/sandbox/bin`, falling back to pinned versions when GitHub rate-limits.
 - Installs zinit under `/root/sandbox/zinit` without touching other users.
 - Copies `templates/zshrc-tpl.zsh` into `/root/sandbox/zsh/.zshrc`. If the file is missing locally, it falls back to the remote template or a minimal stub.
 - Clones `gpakosz/.tmux` and `nascarsayan/.tmux.local` under `/root/sandbox/tmux`, wiring tmux to use those configs only when the sandbox is active.
 - Drops your Powerlevel10k profile into `/root/sandbox/p10k/p10k.zsh`, so the wizard never appears.
+- Bootstraps `krew` inside `/root/sandbox/krew` without touching the system kubectl installation.
 - Writes `/root/sandbox/activate.sh` and `/etc/profile.d/sandbox.sh`. Activation only happens when `SANDBOX_ENABLE=1` is present in the environment.
 
 With `--no-sandbox`, the script simply ensures `zsh`, `tmux`, `fzf`, and `zoxide` are installed through the system package manager (apt/dnf/brew) and exits—no sandbox directories or profile hooks are created.

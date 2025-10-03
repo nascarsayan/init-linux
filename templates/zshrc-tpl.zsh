@@ -11,10 +11,14 @@ if [[ -n "${SANDBOX_HOME:-}" ]]; then
   : "${ZINIT_HOME:=${SANDBOX_HOME}/zinit/zinit.git}"
   export TMUX_HOME="${SANDBOX_HOME}/tmux"
   export FZF_HOME="${SANDBOX_HOME}/fzf"
+  export KREW_ROOT="${SANDBOX_HOME}/krew"
+  export KREW_HOME="${KREW_ROOT}"
   : "${P10K_DEFAULT:=${SANDBOX_HOME}/p10k/p10k.zsh}"
 else
   : "${ZINIT_HOME:=${XDG_DATA_HOME:-${HOME}/.local/share}/zinit/zinit.git}"
   : "${P10K_DEFAULT:=${HOME}/.p10k.zsh}"
+  : "${KREW_ROOT:=${HOME}/.krew}"
+  export KREW_HOME="${KREW_ROOT}"
 fi
 
 instant_prompt="${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
@@ -105,6 +109,10 @@ if command -v fzf >/dev/null 2>&1; then
   fi
 fi
 
+if [[ -d "${KREW_ROOT:-}/bin" ]]; then
+  PATH="${KREW_ROOT}/bin:${PATH}"
+fi
+
 BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
 PATH="${BUN_INSTALL}/bin:${PATH}"
 GITTOP="${GITTOP:-${HOME}/Code/monolith}"
@@ -118,6 +126,10 @@ if [[ -z "${TMUX_CONF:-}" && -n "${TMUX_HOME:-}" && -f "${TMUX_HOME}/.tmux.conf"
 fi
 if command -v tmux >/dev/null 2>&1 && [[ -n "${TMUX_CONF:-}" && -f "${TMUX_CONF}" ]]; then
   alias tmux="tmux -f ${TMUX_CONF}"
+fi
+
+if command -v kubecolor >/dev/null 2>&1; then
+  alias kubectl="kubecolor"
 fi
 
 zinit ice blockf
