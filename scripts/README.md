@@ -4,21 +4,25 @@
 
 ## Quickstart
 
+> ShortURL: https://snas.short.gy/linux-init
+> Redirects to:
+> https://raw.githubusercontent.com/nascarsayan/init-linux/zinit/scripts/sandbox-install.sh
+
 ```bash
 # Run locally (sandboxed)
 sudo scripts/sandbox-install.sh
 
 # Or curl | bash (requires root)
-curl -fsSL https://raw.githubusercontent.com/nascarsayan/init-linux/zinit/scripts/sandbox-install.sh | sudo bash
+curl -fsSL https://snas.short.gy/linux-init | sudo bash
 
 # Remove the sandbox later
-curl -fsSL https://raw.githubusercontent.com/nascarsayan/init-linux/zinit/scripts/sandbox-install.sh | sudo bash -s -- --cleanup
+curl -fsSL https://snas.short.gy/linux-init | sudo bash -s -- --cleanup
 
 # Install to a custom sandbox directory
-curl -fsSL https://raw.githubusercontent.com/nascarsayan/init-linux/zinit/scripts/sandbox-install.sh | sudo bash -s -- --sandbox-dir /opt/dev-sandbox
+curl -fsSL https://snas.short.gy/linux-init | sudo bash -s -- --sandbox-dir /opt/dev-sandbox
 
 # Package-manager only install (no sandbox assets)
-curl -fsSL https://raw.githubusercontent.com/nascarsayan/init-linux/zinit/scripts/sandbox-install.sh | sudo bash -s -- --no-sandbox
+curl -fsSL https://snas.short.gy/linux-init | sudo bash -s -- --no-sandbox
 ```
 
 ## What the installer does (sandbox mode)
