@@ -404,9 +404,23 @@ install_krew() {
     rm -rf "$tmp" "$archive"
     return
   fi
-  KREW_ROOT="$krew_root" KREW_HOME="$krew_root" "${tmp}/krew-${os}_${arch}" install krew >/dev/null 2>&1 || log 'Warning: failed to bootstrap krew'
+  if KREW_ROOT="$krew_root" KREW_HOME="$krew_root" "${tmp}/krew-${os}_${arch}" install krew >/dev/null 2>&1; then
+    PATH="$krew_root/bin:$PATH" KREW_ROOT="$krew_root" KREW_HOME="$krew_root" kubectl krew install tree stern >/dev/null 2>&1 || log 'Warning: failed to install krew plugins (tree, stern)'
+    log "Installed krew under ${krew_root}"
+  else
+    log 'Warning: failed to bootstrap krew'
+  fi
   rm -rf "$tmp" "$archive"
-  log "Installed krew under ${krew_root}"
+}
+
+install_sysz() {
+  local target="$BIN_DIR/sysz"
+  curl -fsSL "https://github.com/joehillen/sysz/releases/latest/download/sysz" -o "$target" || {
+    log 'Warning: unable to download sysz binary'
+    return
+  }
+  chmod +x "$target"
+  log "Installed sysz to ${target}"
 }
 
 write_zshenv() {
@@ -584,6 +598,7 @@ main() {
   install_k9s
   install_kubecolor
   install_krew
+  install_sysz
   install_zinit
   setup_zsh_files
   setup_tmux_files

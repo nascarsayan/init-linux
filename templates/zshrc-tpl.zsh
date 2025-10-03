@@ -132,6 +132,11 @@ if command -v kubecolor >/dev/null 2>&1; then
   alias kubectl="kubecolor"
 fi
 
+if command -v kubectl >/dev/null 2>&1 && command -v krew >/dev/null 2>&1; then
+  export KREW_ROOT="${KREW_ROOT:-${HOME}/.krew}"
+  export KREW_HOME="${KREW_HOME:-${KREW_ROOT}}"
+fi
+
 zinit ice blockf
 zinit light Aloxaf/fzf-tab
 
