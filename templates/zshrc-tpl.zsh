@@ -57,6 +57,15 @@ zinit snippet https://raw.githubusercontent.com/ahmetb/kubectl-alias/master/.kub
 
 alias git_current_branch="git rev-parse --abbrev-ref HEAD"
 alias ggpush='git push origin $(git_current_branch)'
+mkcd() {
+  if [ $# -eq 0 ]; then
+    printf 'usage: mkcd <directory>\n' >&2
+    return 1
+  fi
+  mkdir -p -- "$1" && cd -- "$1"
+}
+
+alias mkcd=mkcd
 
 if command -v pass >/dev/null 2>&1; then
   sshp() {
