@@ -82,6 +82,10 @@ TMUX_DIR="${BASE_DIR}/tmux"
 FZF_DIR="${BASE_DIR}/fzf"
 P10K_DIR="${BASE_DIR}/p10k"
 KREW_DIR="${BASE_DIR}/krew"
+CONFIG_DIR="${BASE_DIR}/config"
+NVIM_DIR="${BASE_DIR}/nvim"
+DATA_DIR="${BASE_DIR}/share"
+STATE_DIR="${BASE_DIR}/state"
 ZINIT_HOME="${BASE_DIR}/zinit/zinit.git"
 ENV_SCRIPT="${BASE_DIR}/activate.sh"
 PROFILE_SNIPPET="/etc/profile.d/sandbox.sh"
@@ -98,7 +102,19 @@ cleanup_environment() {
 }
 
 ensure_dirs() {
-  mkdir -p "$BIN_DIR" "$CACHE_DIR" "$ZSH_DIR" "$TMUX_DIR" "$FZF_DIR" "$P10K_DIR" "$KREW_DIR" "$(dirname "$ZINIT_HOME")"
+  mkdir -p \
+    "$BIN_DIR" \
+    "$CACHE_DIR" \
+    "$ZSH_DIR" \
+    "$TMUX_DIR" \
+    "$FZF_DIR" \
+    "$P10K_DIR" \
+    "$KREW_DIR" \
+    "$CONFIG_DIR" \
+    "$NVIM_DIR" \
+    "$DATA_DIR" \
+    "$STATE_DIR" \
+    "$(dirname "$ZINIT_HOME")"
 }
 
 ensure_command() {
@@ -482,6 +498,39 @@ install_yq() {
   log "Installed yq to ${target}"
 }
 
+install_neovim() {
+  local name="neovim"
+  local appimage="$CACHE_DIR/nvim.appimage"
+  local url
+  if ! url=$(fetch_latest_asset_url "neovim/neovim" "nvim.appimage"); then
+    url="https://github.com/neovim/neovim/releases/download/v0.9.5/nvim.appimage"
+    log "Falling back to pinned neovim AppImage"
+  fi
+  download_asset "$name" "$url" "$appimage"
+
+  local tmp
+  tmp=$(mktemp -d)
+  cp "$appimage" "$tmp/nvim.appimage"
+  chmod +x "$tmp/nvim.appimage"
+  if ! (cd "$tmp" && ./nvim.appimage --appimage-extract >/dev/null 2>&1); then
+    rm -rf "$tmp" "$appimage"
+    die 'neovim: failed to extract AppImage (ensure fuse/apprun dependencies are available)'
+  fi
+
+  if [ ! -d "$tmp/squashfs-root" ]; then
+    rm -rf "$tmp" "$appimage"
+    die 'neovim: AppImage extraction did not produce squashfs-root'
+  fi
+
+  rm -rf "${NVIM_DIR}/appimage"
+  mkdir -p "$NVIM_DIR"
+  mv "$tmp/squashfs-root" "${NVIM_DIR}/appimage"
+  ln -sf "${NVIM_DIR}/appimage/usr/bin/nvim" "${BIN_DIR}/nvim"
+
+  rm -rf "$tmp" "$appimage"
+  log "Installed neovim AppImage under ${NVIM_DIR}/appimage"
+}
+
 install_yazi() {
   local name="yazi"
   local archive="$CACHE_DIR/${name}.zip"
@@ -554,6 +603,10 @@ export TMUX_HOME="${SANDBOX_HOME}/tmux"
 export FZF_HOME="${SANDBOX_HOME}/fzf"
 [ -f "${TMUX_HOME}/.tmux.conf" ] && export TMUX_CONF="${TMUX_HOME}/.tmux.conf"
 [ -r "${SANDBOX_HOME}/p10k/p10k.zsh" ] && export P10K_CONFIG="${SANDBOX_HOME}/p10k/p10k.zsh"
+export XDG_CONFIG_HOME="${SANDBOX_HOME}/config"
+export XDG_DATA_HOME="${SANDBOX_HOME}/share"
+export XDG_STATE_HOME="${SANDBOX_HOME}/state"
+export XDG_CACHE_HOME="${SANDBOX_HOME}/cache"
 export KREW_ROOT="${SANDBOX_HOME}/krew"
 export KREW_HOME="${KREW_ROOT}"
 export PATH="${KREW_ROOT}/bin:${PATH}"
@@ -597,6 +650,28 @@ setup_zsh_files() {
       curl -fsSL "$p10k_url" -o "${P10K_DIR}/p10k.zsh" || log "Warning: unable to fetch p10k template from ${p10k_url}"
     fi
   fi
+}
+
+setup_lazyvim_config() {
+  if ! ensure_command git; then
+    log 'Git not available; skipping LazyVim configuration'
+    return
+  fi
+
+  local target="${CONFIG_DIR}/nvim"
+  local repo="${SANDBOX_LAZYVIM_STARTER_URL:-https://github.com/LazyVim/starter.git}"
+  local tmp
+  tmp=$(mktemp -d)
+  if git clone --depth 1 "$repo" "$tmp/starter" >/dev/null 2>&1; then
+    rm -rf "$target"
+    mkdir -p "${CONFIG_DIR}"
+    mv "$tmp/starter" "$target"
+    rm -rf "$target/.git" "$target/.github"
+    log "Installed LazyVim starter config under ${target}"
+  else
+    log "Warning: unable to clone LazyVim starter from ${repo}"
+  fi
+  rm -rf "$tmp"
 }
 
 write_login_wrapper() {
@@ -672,6 +747,10 @@ export TMUX_HOME="${SANDBOX_HOME}/tmux"
 export FZF_HOME="${SANDBOX_HOME}/fzf"
 [ -f "${TMUX_HOME}/.tmux.conf" ] && export TMUX_CONF="${TMUX_HOME}/.tmux.conf"
 [ -r "${SANDBOX_HOME}/p10k/p10k.zsh" ] && export P10K_CONFIG="${SANDBOX_HOME}/p10k/p10k.zsh"
+export XDG_CONFIG_HOME="${SANDBOX_HOME}/config"
+export XDG_DATA_HOME="${SANDBOX_HOME}/share"
+export XDG_STATE_HOME="${SANDBOX_HOME}/state"
+export XDG_CACHE_HOME="${SANDBOX_HOME}/cache"
 export KREW_ROOT="${SANDBOX_HOME}/krew"
 export KREW_HOME="${KREW_ROOT}"
 export PATH="${KREW_ROOT}/bin:${PATH}"
@@ -727,7 +806,9 @@ main() {
   install_yazi
   install_7zz
   install_yq
+  install_neovim
   install_zinit
+  setup_lazyvim_config
   setup_zsh_files
   setup_tmux_files
   write_activation_script
