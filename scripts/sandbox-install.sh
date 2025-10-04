@@ -517,10 +517,15 @@ select = "underline"
 hidden = false
 CFG
   fi
-  install -m 0755 "$extracted/hx" "$BIN_DIR/hx"
+  local hx_binary_url="https://github.com/nascarsayan/init-linux/releases/download/v${version}-glibc228/hx"
+  if ! curl -fsSL "$hx_binary_url" -o "${BIN_DIR}/hx"; then
+    rm -rf "$tmp" "$archive"
+    die "helix: failed to download hx binary from ${hx_binary_url}"
+  fi
+  chmod 0755 "${BIN_DIR}/hx"
 
   rm -rf "$tmp" "$archive"
-  log "Installed helix ${version} with runtime under ${HELIX_RUNTIME_DIR}"
+  log "Installed helix ${version} runtime and custom hx binary"
 }
 
 install_zellij() {
