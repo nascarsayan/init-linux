@@ -66,6 +66,7 @@ mkcd() {
 }
 
 alias mkcd=mkcd
+alias ls='eza -lh --group-directories-first --icons=auto'
 
 if command -v pass >/dev/null 2>&1; then
   sshp() {
