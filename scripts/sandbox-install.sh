@@ -605,6 +605,25 @@ install_gobang() {
     "gobang"
 }
 
+install_duf() {
+  install_tar_binary \
+    "duf" \
+    "muesli/duf" \
+    "linux_x86_64\\.tar\\.gz" \
+    "https://github.com/muesli/duf/releases/download/v0.9.1/duf_0.9.1_linux_x86_64.tar.gz" \
+    "duf"
+}
+
+install_broot() {
+  local target="$BIN_DIR/broot"
+  curl -fsSL "https://dystroy.org/broot/download/x86_64-unknown-linux-musl/broot" -o "$target" || {
+    log 'Warning: unable to download broot binary'
+    return
+  }
+  chmod +x "$target"
+  log "Installed broot to ${target}"
+}
+
 install_eza() {
   install_tar_binary \
     "eza" \
@@ -880,6 +899,8 @@ main() {
   install_bat
   install_btop
   install_gobang
+  install_duf
+  install_broot
   install_zinit
   setup_zsh_files
   write_activation_script
