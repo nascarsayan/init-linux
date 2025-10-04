@@ -569,6 +569,15 @@ install_btop() {
       rm -rf "$tmp" "$archive"
       die 'btop: failed to extract archive via 7zz'
     fi
+    local nested_tar
+    nested_tar=$(find "$tmp" -maxdepth 1 -type f -name '*.tar' | head -n 1 || true)
+    if [ -n "$nested_tar" ]; then
+      if ! tar -xf "$nested_tar" -C "$tmp"; then
+        rm -rf "$tmp" "$archive"
+        die 'btop: failed to extract nested tar after 7zz unzip'
+      fi
+      rm -f "$nested_tar"
+    fi
   else
     if ! tar -xjf "$archive" -C "$tmp"; then
       rm -rf "$tmp" "$archive"
