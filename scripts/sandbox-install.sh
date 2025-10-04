@@ -69,7 +69,6 @@ fi
 
 DEFAULT_SANDBOX_HOME=/root/sandbox
 SANDBOX_HOME=${SANDBOX_HOME_ARG:-${SANDBOX_HOME:-$DEFAULT_SANDBOX_HOME}}
-SANDBOX_MODE=$(( NO_SANDBOX ? 0 : 1 ))
 
 # Sandbox paths
 BASE_DIR="$SANDBOX_HOME"
@@ -800,20 +799,18 @@ install_zinit() {
 write_activation_script() {
   cat <<'EOF' >"${ENV_SCRIPT}"
 # shellcheck shell=sh
-[ "${SANDBOX_ENV_ACTIVATED:-0}" -eq 1 ] && return 0 2>/dev/null || true
-export SANDBOX_ENV_ACTIVATED=1
 export SANDBOX_HOME="${SANDBOX_HOME:-__BASE__}"
 export PATH="${SANDBOX_HOME}/bin:${PATH}"
 export ZDOTDIR="${SANDBOX_HOME}/zsh"
 export ZINIT_HOME="${SANDBOX_HOME}/zinit/zinit.git"
 export FZF_HOME="${SANDBOX_HOME}/fzf"
 export EDITOR="hx"
-[ -d "${SANDBOX_HOME}/.cache" ] && export XDG_CACHE_HOME="${SANDBOX_HOME}/.cache"
-[ -d "${SANDBOX_HOME}/.config" ] && export XDG_CONFIG_HOME="${SANDBOX_HOME}/.config"
-[ -d "${SANDBOX_HOME}/.local/share" ] && export XDG_DATA_HOME="${SANDBOX_HOME}/.local/share"
-[ -d "${XDG_CONFIG_HOME:-${SANDBOX_HOME}/.config}/helix" ] && export HELIX_CONFIG_DIR="${XDG_CONFIG_HOME:-${SANDBOX_HOME}/.config}/helix"
-[ -d "${HELIX_CONFIG_DIR:-}/runtime" ] && export HELIX_RUNTIME="${HELIX_CONFIG_DIR}/runtime"
-[ -r "${SANDBOX_HOME}/p10k/p10k.zsh" ] && export P10K_CONFIG="${SANDBOX_HOME}/p10k/p10k.zsh"
+export XDG_CACHE_HOME="${SANDBOX_HOME}/.cache"
+export XDG_CONFIG_HOME="${SANDBOX_HOME}/.config"
+export XDG_DATA_HOME="${SANDBOX_HOME}/.local/share"
+export HELIX_CONFIG_DIR="${XDG_CONFIG_HOME}/helix"
+export HELIX_RUNTIME="${HELIX_CONFIG_DIR}/runtime"
+export P10K_CONFIG="${SANDBOX_HOME}/p10k/p10k.zsh"
 export KREW_ROOT="${SANDBOX_HOME}/krew"
 export KREW_HOME="${KREW_ROOT}"
 export PATH="${KREW_ROOT}/bin:${PATH}"
