@@ -633,21 +633,56 @@ setup_zsh_files() {
   fi
 }
 
-write_login_wrapper() {
-  local wrapper="${BIN_DIR}/sandbox-login"
+write_shell_wrapper() {
+  local wrapper="${BIN_DIR}/sandbox-shell"
+  local legacy="${BIN_DIR}/sandbox-login"
   cat <<'EOF' >"$wrapper"
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
+
 SANDBOX_HOME="${SANDBOX_HOME:-__BASE__}"
-if [ -f "${SANDBOX_HOME}/activate.sh" ]; then
+ENV_SCRIPT="${SANDBOX_HOME}/activate.sh"
+
+if [ -f "${ENV_SCRIPT}" ]; then
   # shellcheck disable=SC1090
-  source "${SANDBOX_HOME}/activate.sh"
+  source "${ENV_SCRIPT}"
 fi
+
 exec zsh -il "$@"
 EOF
   sed -i "s#__BASE__#${BASE_DIR//\\/\\\\}#" "$wrapper"
   chmod +x "$wrapper"
-  log "Created sandbox login wrapper at ${wrapper}"
+  ln -sf "$(basename "$wrapper")" "$legacy"
+  log "Created sandbox shell wrapper at ${wrapper}"
+}
+
+write_sssh_wrapper() {
+  local wrapper="${BIN_DIR}/sssh"
+  cat <<'EOF' >"$wrapper"
+#!/usr/bin/env bash
+set -euo pipefail
+
+SANDBOX_HOME="${SANDBOX_HOME:-__BASE__}"
+REMOTE_WRAPPER="${SANDBOX_HOME}/bin/sandbox-shell"
+
+if ! command -v ssh >/dev/null 2>&1; then
+  echo "[sandbox] ssh not found on PATH" >&2
+  exit 1
+fi
+
+if [ $# -lt 1 ]; then
+  echo "usage: sssh [ssh-options ...] user@host" >&2
+  exit 1
+fi
+
+remote_host="${@: -1}"
+ssh_args=( "${@:1:$#-1}" )
+
+exec ssh "${ssh_args[@]}" "${remote_host}" "${REMOTE_WRAPPER}"
+EOF
+  sed -i "s#__BASE__#${BASE_DIR//\\/\\\\}#" "$wrapper"
+  chmod +x "$wrapper"
+  log "Created sandbox ssh helper at ${wrapper}"
 }
 
 install_tmux_local() {
@@ -768,9 +803,10 @@ main() {
   setup_zsh_files
   setup_tmux_files
   write_activation_script
-  write_login_wrapper
+  write_shell_wrapper
+  write_sssh_wrapper
   write_profile_snippet
-  log 'Installation complete. Use /root/sandbox/bin/sandbox-login (e.g. via SSH RemoteCommand) or source /root/sandbox/activate.sh manually.'
+  log 'Installation complete. Launch locally with /root/sandbox/bin/sandbox-shell or connect via /root/sandbox/bin/sssh user@host.'
 }
 
 main "$@"
