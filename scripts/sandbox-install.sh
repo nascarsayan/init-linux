@@ -5,9 +5,7 @@ umask 022
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)
 TEMPLATE_ZSHRC="${SCRIPT_DIR}/../templates/zshrc-tpl.zsh"
-TEMPLATE_TMUX="${SCRIPT_DIR}/../templates/tmuxrc-tpl.conf"
 DEFAULT_TEMPLATE_URL="https://raw.githubusercontent.com/nascarsayan/init-linux/zinit/templates/zshrc-tpl.zsh"
-DEFAULT_TMUX_URL="https://raw.githubusercontent.com/nascarsayan/.tmux.local/master/.tmux.conf.local"
 DEFAULT_P10K_URL="https://raw.githubusercontent.com/nascarsayan/init-linux/zinit/templates/p10k.zsh"
 FZF_VERSION="${FZF_VERSION:-0.65.2}"
 
@@ -78,10 +76,12 @@ BASE_DIR="$SANDBOX_HOME"
 BIN_DIR="${BASE_DIR}/bin"
 CACHE_DIR="${BASE_DIR}/cache"
 ZSH_DIR="${BASE_DIR}/zsh"
-TMUX_DIR="${BASE_DIR}/tmux"
 FZF_DIR="${BASE_DIR}/fzf"
 P10K_DIR="${BASE_DIR}/p10k"
 KREW_DIR="${BASE_DIR}/krew"
+HELIX_DIR="${BASE_DIR}/helix"
+HELIX_RUNTIME_DIR="${HELIX_DIR}/runtime"
+HELIX_CONFIG_DIR="${HELIX_DIR}/config"
 ZINIT_HOME="${BASE_DIR}/zinit/zinit.git"
 ENV_SCRIPT="${BASE_DIR}/activate.sh"
 PROFILE_SNIPPET="/etc/profile.d/sandbox.sh"
@@ -102,10 +102,12 @@ ensure_dirs() {
     "$BIN_DIR" \
     "$CACHE_DIR" \
     "$ZSH_DIR" \
-    "$TMUX_DIR" \
     "$FZF_DIR" \
     "$P10K_DIR" \
     "$KREW_DIR" \
+    "$HELIX_DIR" \
+    "$HELIX_RUNTIME_DIR" \
+    "$HELIX_CONFIG_DIR" \
     "$(dirname "$ZINIT_HOME")"
 }
 
@@ -145,14 +147,14 @@ install_global_packages() {
   detect_pkg_manager
   case "$pkg_manager" in
     apt)
-      for pkg in fzf zoxide tmux; do
+      for pkg in fzf zoxide; do
         if ! install_pkg "$pkg"; then
           log "Warning: unable to install $pkg via apt"
         fi
       done
       ;;
     dnf)
-      for pkg in fzf zoxide tmux; do
+      for pkg in fzf zoxide; do
         if ! install_pkg "$pkg"; then
           log "Warning: unable to install $pkg via dnf"
         fi
@@ -160,7 +162,7 @@ install_global_packages() {
       ;;
     *)
       if command -v brew >/dev/null 2>&1; then
-        for pkg in fzf zoxide tmux; do
+        for pkg in fzf zoxide; do
           brew install "$pkg" || log "Warning: unable to install $pkg via brew"
         done
       else
@@ -247,26 +249,6 @@ ensure_zsh() {
         log 'zsh unavailable (no apt/dnf/brew); skipping shell setup'
         return 1
       fi
-      ;;
-  esac
-}
-
-ensure_tmux() {
-  if ensure_command tmux; then
-    return
-  fi
-  log 'tmux not found; attempting installation'
-  detect_pkg_manager
-  case "$pkg_manager" in
-    apt)
-      install_pkg tmux
-      ;;
-    dnf)
-      install_pkg tmux
-      ;;
-    *)
-      log 'tmux unavailable (no apt/dnf); skipping tmux binary install'
-      return 1
       ;;
   esac
 }
@@ -490,6 +472,81 @@ install_yq() {
   log "Installed yq to ${target}"
 }
 
+install_helix() {
+  local version="${SANDBOX_HELIX_VERSION:-25.07.1}"
+  local name="helix"
+  local archive="$CACHE_DIR/${name}.tar.xz"
+  local url="https://github.com/helix-editor/helix/releases/download/${version}/helix-${version}-x86_64-linux.tar.xz"
+  download_asset "$name" "$url" "$archive"
+
+  local tmp
+  tmp=$(mktemp -d)
+  if ! tar -xJf "$archive" -C "$tmp"; then
+    rm -rf "$tmp" "$archive"
+    die 'helix: failed to extract archive'
+  fi
+
+  local extracted
+  extracted=$(find "$tmp" -maxdepth 1 -mindepth 1 -type d -name "helix-*" | head -n 1 || true)
+  if [ -z "$extracted" ]; then
+    rm -rf "$tmp" "$archive"
+    die 'helix: extracted archive missing helix directory'
+  fi
+
+  mkdir -p "$HELIX_DIR"
+  rm -rf "$HELIX_RUNTIME_DIR"
+  cp -r "$extracted/runtime" "$HELIX_RUNTIME_DIR"
+  mkdir -p "$HELIX_CONFIG_DIR"
+  if [ ! -f "${HELIX_CONFIG_DIR}/config.toml" ]; then
+    cat <<'CFG' >"${HELIX_CONFIG_DIR}/config.toml"
+theme = "catppuccin-macchiato"
+
+[editor]
+line-number = "relative"
+mouse = true
+
+[editor.cursor-shape]
+insert = "bar"
+normal = "block"
+select = "underline"
+
+[editor.file-picker]
+hidden = false
+CFG
+  fi
+  install -m 0755 "$extracted/hx" "$BIN_DIR/hx"
+
+  rm -rf "$tmp" "$archive"
+  log "Installed helix ${version} with runtime under ${HELIX_DIR}"
+}
+
+install_zellij() {
+  install_tar_binary \
+    "zellij" \
+    "zellij-org/zellij" \
+    "zellij-no-web-.*x86_64-unknown-linux-musl\\.tar\\.gz" \
+    "https://github.com/zellij-org/zellij/releases/download/v0.43.1/zellij-no-web-x86_64-unknown-linux-musl.tar.gz" \
+    "zellij"
+}
+
+install_delta() {
+  install_tar_binary \
+    "delta" \
+    "dandavison/delta" \
+    "x86_64-unknown-linux-musl\\.tar\\.gz" \
+    "https://github.com/dandavison/delta/releases/download/0.18.2/delta-0.18.2-x86_64-unknown-linux-musl.tar.gz" \
+    "delta"
+}
+
+install_bat() {
+  install_tar_binary \
+    "bat" \
+    "sharkdp/bat" \
+    "x86_64-unknown-linux-musl\\.tar\\.gz" \
+    "https://github.com/sharkdp/bat/releases/download/v0.25.0/bat-v0.25.0-x86_64-unknown-linux-musl.tar.gz" \
+    "bat"
+}
+
 install_eza() {
   install_tar_binary \
     "eza" \
@@ -497,15 +554,6 @@ install_eza() {
     "x86_64-unknown-linux-musl.*tar.gz" \
     "https://github.com/eza-community/eza/releases/download/v0.23.4/eza_x86_64-unknown-linux-musl.tar.gz" \
     "eza"
-}
-
-install_neovim() {
-  install_tar_binary \
-    "neovim" \
-    "neovim/neovim" \
-    "nvim-linux64\\.tar\\.gz" \
-    "https://github.com/neovim/neovim/releases/download/v0.10.2/nvim-linux64.tar.gz" \
-    "nvim"
 }
 
 install_yazi() {
@@ -575,12 +623,12 @@ write_zshenv() {
   cat <<'EOF' >"${ZSH_DIR}/.zshenv"
 export SANDBOX_HOME="${SANDBOX_HOME:-__BASE__}"
 export PATH="${SANDBOX_HOME}/bin:${PATH}"
-export EDITOR="nvim"
+export EDITOR="hx"
 export ZINIT_HOME="${SANDBOX_HOME}/zinit/zinit.git"
-export TMUX_HOME="${SANDBOX_HOME}/tmux"
 export FZF_HOME="${SANDBOX_HOME}/fzf"
-[ -f "${TMUX_HOME}/.tmux.conf" ] && export TMUX_CONF="${TMUX_HOME}/.tmux.conf"
 [ -r "${SANDBOX_HOME}/p10k/p10k.zsh" ] && export P10K_CONFIG="${SANDBOX_HOME}/p10k/p10k.zsh"
+export HELIX_RUNTIME="${SANDBOX_HOME}/helix/runtime"
+export HELIX_CONFIG_DIR="${SANDBOX_HOME}/helix/config"
 export KREW_ROOT="${SANDBOX_HOME}/krew"
 export KREW_HOME="${KREW_ROOT}"
 export PATH="${KREW_ROOT}/bin:${PATH}"
@@ -687,88 +735,6 @@ EOF
   log "Created sandbox ssh helper at ${wrapper}"
 }
 
-write_tmux_wrapper() {
-  local wrapper="${BIN_DIR}/sandbox-tmux"
-  local system_tmux
-  system_tmux=$(command -v tmux || true)
-  if [ -z "$system_tmux" ]; then
-    log 'Warning: system tmux not found; skipping sandbox tmux wrapper'
-    return
-  fi
-
-  cat <<'EOF' >"$wrapper"
-#!/usr/bin/env bash
-set -euo pipefail
-
-SANDBOX_HOME="${SANDBOX_HOME:-__BASE__}"
-SYSTEM_TMUX="__TMUX__"
-ENV_SCRIPT="${SANDBOX_HOME}/activate.sh"
-
-if [ -f "${ENV_SCRIPT}" ]; then
-  # shellcheck disable=SC1090
-  source "${ENV_SCRIPT}"
-fi
-
-if [ -z "${SYSTEM_TMUX}" ] || [ ! -x "${SYSTEM_TMUX}" ]; then
-  SYSTEM_TMUX=$(command -v tmux || true)
-fi
-
-if [ -z "${SYSTEM_TMUX}" ]; then
-  echo "[sandbox] system tmux not available" >&2
-  exit 1
-fi
-
-exec "${SYSTEM_TMUX}" "$@"
-EOF
-
-  local base_escaped="${BASE_DIR//\\/\\\\}"
-  base_escaped="${base_escaped//\//\/}"
-  sed -i "s#__BASE__#${base_escaped}#" "$wrapper"
-
-  local tmux_escaped="${system_tmux//\\/\\\\}"
-  tmux_escaped="${tmux_escaped//\//\/}"
-  sed -i "s#__TMUX__#${tmux_escaped}#" "$wrapper"
-
-  chmod +x "$wrapper"
-  ln -sf "$(basename "$wrapper")" "${BIN_DIR}/tmux"
-  log "Created sandbox tmux wrapper at ${wrapper}"
-
-}
-
-install_tmux_local() {
-  if ! ensure_command git; then
-    log 'Git not available; skipping tmux repo clone'
-    return
-  fi
-  git_clone_or_update https://github.com/gpakosz/.tmux.git "${TMUX_DIR}/.tmux"
-  git_clone_or_update https://github.com/nascarsayan/.tmux.local.git "${TMUX_DIR}/.tmux.local"
-}
-
-setup_tmux_files() {
-  install_tmux_local
-  local target_conf="${TMUX_DIR}/.tmux.conf"
-  if [ -f "$TEMPLATE_TMUX" ]; then
-    cp "$TEMPLATE_TMUX" "$target_conf"
-    chmod 0644 "$target_conf"
-  else
-    local tmux_url="${SANDBOX_TMUX_TEMPLATE_URL:-$DEFAULT_TMUX_URL}"
-    if curl -fsSL "$tmux_url" -o "$target_conf"; then
-      chmod 0644 "$target_conf"
-      log "Fetched tmux template from ${tmux_url}"
-    else
-      log "Tmux template unavailable; skipping tmux configuration"
-      rm -f "$target_conf"
-    fi
-  fi
-
-  if [ -d "${TMUX_DIR}/.tmux" ]; then
-    ln -sf "${TMUX_DIR}/.tmux/.tmux.conf" "$target_conf"
-  fi
-  if [ -d "${TMUX_DIR}/.tmux.local" ] && [ -f "${TMUX_DIR}/.tmux.local/.tmux.conf.local" ]; then
-    ln -sf "${TMUX_DIR}/.tmux.local/.tmux.conf.local" "${TMUX_DIR}/.tmux.conf.local"
-  fi
-}
-
 install_zinit() {
   if [ -d "$ZINIT_HOME" ]; then
     log 'Zinit already present; fetching latest changes'
@@ -787,10 +753,10 @@ export SANDBOX_HOME="${SANDBOX_HOME:-__BASE__}"
 export PATH="${SANDBOX_HOME}/bin:${PATH}"
 export ZDOTDIR="${SANDBOX_HOME}/zsh"
 export ZINIT_HOME="${SANDBOX_HOME}/zinit/zinit.git"
-export TMUX_HOME="${SANDBOX_HOME}/tmux"
 export FZF_HOME="${SANDBOX_HOME}/fzf"
-export EDITOR="nvim"
-[ -f "${TMUX_HOME}/.tmux.conf" ] && export TMUX_CONF="${TMUX_HOME}/.tmux.conf"
+export EDITOR="hx"
+[ -r "${SANDBOX_HOME}/helix/runtime" ] && export HELIX_RUNTIME="${SANDBOX_HOME}/helix/runtime"
+[ -d "${SANDBOX_HOME}/helix/config" ] && export HELIX_CONFIG_DIR="${SANDBOX_HOME}/helix/config"
 [ -r "${SANDBOX_HOME}/p10k/p10k.zsh" ] && export P10K_CONFIG="${SANDBOX_HOME}/p10k/p10k.zsh"
 export KREW_ROOT="${SANDBOX_HOME}/krew"
 export KREW_HOME="${KREW_ROOT}"
@@ -818,7 +784,6 @@ main() {
   if [ "$NO_SANDBOX" -eq 1 ]; then
     ensure_base_prereqs
     ensure_zsh || log 'zsh installation skipped (not available)'
-    ensure_tmux || log 'tmux installation skipped (not available)'
     install_global_packages
     log 'Global installation completed.'
     return
@@ -830,7 +795,6 @@ main() {
   ensure_dirs
   ensure_base_prereqs
   ensure_zsh || log 'zsh setup skipped'
-  ensure_tmux || log 'tmux setup skipped'
   install_crush
   install_croc
   install_codex
@@ -848,16 +812,17 @@ main() {
   install_yazi
   install_7zz
   install_yq
-  install_neovim
+  install_helix
+  install_zellij
+  install_delta
+  install_bat
   install_zinit
   setup_zsh_files
-  setup_tmux_files
   write_activation_script
   write_shell_wrapper
-  write_tmux_wrapper
   write_sssh_wrapper
   write_profile_snippet
-  log 'Installation complete. Launch locally with /root/sandbox/bin/sandbox-shell, use /root/sandbox/bin/tmux for sandbox tmux, or connect via /root/sandbox/bin/sssh user@host.'
+  log 'Installation complete. Launch locally with /root/sandbox/bin/sandbox-shell or connect via /root/sandbox/bin/sssh user@host.'
 }
 
 main "$@"
