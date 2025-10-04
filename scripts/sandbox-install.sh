@@ -547,6 +547,39 @@ install_bat() {
     "bat"
 }
 
+install_btop() {
+  local name="btop"
+  local archive="$CACHE_DIR/${name}.tbz"
+  local url="https://github.com/aristocratos/btop/releases/download/v1.4.5/btop-x86_64-linux-musl.tbz"
+  download_asset "$name" "$url" "$archive"
+
+  local tmp
+  tmp=$(mktemp -d)
+  local seven_zip="${BIN_DIR}/7zz"
+  if [ -x "$seven_zip" ]; then
+    if ! "$seven_zip" x "-o${tmp}" "$archive" >/dev/null 2>&1; then
+      rm -rf "$tmp" "$archive"
+      die 'btop: failed to extract archive via 7zz'
+    fi
+  else
+    if ! tar -xjf "$archive" -C "$tmp"; then
+      rm -rf "$tmp" "$archive"
+      die 'btop: failed to extract archive (tar does not support bzip2)'
+    fi
+  fi
+
+  local bin_path
+  bin_path=$(find "$tmp" -type f -name "btop" -perm -u+x | head -n 1 || true)
+  if [ -z "$bin_path" ]; then
+    rm -rf "$tmp" "$archive"
+    die 'btop: executable not found after extraction'
+  fi
+
+  install -m 0755 "$bin_path" "$BIN_DIR/btop"
+  rm -rf "$tmp" "$archive"
+  log "Installed btop to ${BIN_DIR}/btop"
+}
+
 install_eza() {
   install_tar_binary \
     "eza" \
@@ -816,6 +849,7 @@ main() {
   install_zellij
   install_delta
   install_bat
+  install_btop
   install_zinit
   setup_zsh_files
   write_activation_script
