@@ -178,6 +178,28 @@ ensure_base_prereqs() {
       die "required command '$cmd' not found"
     fi
   done
+  if ! ensure_command unzip; then
+    detect_pkg_manager
+    if [ -n "$pkg_manager" ]; then
+      install_pkg unzip
+    else
+      die "required command 'unzip' not found and unable to install automatically"
+    fi
+  fi
+  if ! ensure_command xz; then
+    detect_pkg_manager
+    case "$pkg_manager" in
+      apt)
+        install_pkg xz-utils
+        ;;
+      dnf)
+        install_pkg xz
+        ;;
+      *)
+        die "required command 'xz' not found and unable to install automatically"
+        ;;
+    esac
+  fi
   if ! ensure_command find; then
     detect_pkg_manager
     if [ -n "$pkg_manager" ]; then
@@ -369,6 +391,33 @@ install_zoxide() {
     "zoxide"
 }
 
+install_fd() {
+  install_tar_binary \
+    "fd" \
+    "sharkdp/fd" \
+    "x86_64-unknown-linux-musl.*tar.gz" \
+    "https://github.com/sharkdp/fd/releases/download/v10.3.0/fd-v10.3.0-x86_64-unknown-linux-musl.tar.gz" \
+    "fd"
+}
+
+install_ripgrep() {
+  install_tar_binary \
+    "ripgrep" \
+    "BurntSushi/ripgrep" \
+    "x86_64-unknown-linux-musl.*tar.gz" \
+    "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-x86_64-unknown-linux-musl.tar.gz" \
+    "rg"
+}
+
+install_tre() {
+  install_tar_binary \
+    "tre" \
+    "dduan/tre" \
+    "x86_64-unknown-linux-musl.*tar.gz" \
+    "https://github.com/dduan/tre/releases/download/v0.4.0/tre-v0.4.0-x86_64-unknown-linux-musl.tar.gz" \
+    "tre"
+}
+
 install_k9s() {
   install_tar_binary \
     "k9s" \
@@ -431,6 +480,69 @@ install_yq() {
   }
   chmod +x "$target"
   log "Installed yq to ${target}"
+}
+
+install_yazi() {
+  local name="yazi"
+  local archive="$CACHE_DIR/${name}.zip"
+  local url="https://github.com/sxyazi/yazi/releases/download/v25.5.31/yazi-x86_64-unknown-linux-musl.zip"
+  download_asset "$name" "$url" "$archive"
+  local tmp
+  tmp=$(mktemp -d)
+  if ! unzip -q "$archive" -d "$tmp"; then
+    rm -rf "$tmp" "$archive"
+    die 'yazi: failed to extract archive'
+  fi
+  local base_dir
+  base_dir=$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | head -n 1 || true)
+  [ -z "$base_dir" ] && base_dir="$tmp"
+  local yazi_bin
+  yazi_bin=$(find "$base_dir" -type f -name "yazi" -perm -u+x | head -n 1 || true)
+  if [ -z "$yazi_bin" ]; then
+    rm -rf "$tmp" "$archive"
+    die 'yazi: binary yazi not located after extraction'
+  fi
+  install -m 0755 "$yazi_bin" "$BIN_DIR/yazi"
+  local ya_bin
+  ya_bin=$(find "$base_dir" -type f -name "ya" -perm -u+x | head -n 1 || true)
+  if [ -n "$ya_bin" ]; then
+    install -m 0755 "$ya_bin" "$BIN_DIR/ya"
+  else
+    log 'Warning: yazi helper binary "ya" not found in archive'
+  fi
+  rm -rf "$tmp" "$archive"
+  log "Installed yazi to ${BIN_DIR}/yazi"
+}
+
+install_7zz() {
+  local name="7zz"
+  local archive="$CACHE_DIR/${name}.tar.xz"
+  local url="https://github.com/ip7z/7zip/releases/download/25.01/7z2501-linux-x64.tar.xz"
+  download_asset "$name" "$url" "$archive"
+  local tmp
+  tmp=$(mktemp -d)
+  if ! tar -xf "$archive" -C "$tmp"; then
+    rm -rf "$tmp" "$archive"
+    die '7zz: failed to extract archive'
+  fi
+  local main_bin="$tmp/7zz"
+  if [ ! -x "$main_bin" ]; then
+    main_bin=$(find "$tmp" -type f -name "7zz" -perm -u+x | head -n 1 || true)
+  fi
+  if [ -z "$main_bin" ]; then
+    rm -rf "$tmp" "$archive"
+    die '7zz: binary 7zz not located after extraction'
+  fi
+  install -m 0755 "$main_bin" "$BIN_DIR/7zz"
+  local secondary_bin="$tmp/7zzs"
+  if [ ! -x "$secondary_bin" ]; then
+    secondary_bin=$(find "$tmp" -type f -name "7zzs" -perm -u+x | head -n 1 || true)
+  fi
+  if [ -n "$secondary_bin" ]; then
+    install -m 0755 "$secondary_bin" "$BIN_DIR/7zzs"
+  fi
+  rm -rf "$tmp" "$archive"
+  log "Installed 7zz to ${BIN_DIR}/7zz"
 }
 
 write_zshenv() {
@@ -605,10 +717,15 @@ main() {
   install_gh
   install_fzf
   install_zoxide
+  install_fd
+  install_ripgrep
+  install_tre
   install_k9s
   install_kubecolor
   install_krew
   install_sysz
+  install_yazi
+  install_7zz
   install_yq
   install_zinit
   setup_zsh_files
