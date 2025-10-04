@@ -596,6 +596,15 @@ install_btop() {
   log "Installed btop to ${BIN_DIR}/btop"
 }
 
+install_gobang() {
+  install_tar_binary \
+    "gobang" \
+    "TaKO8Ki/gobang" \
+    "x86_64-unknown-linux-musl\\.tar\\.gz" \
+    "https://github.com/TaKO8Ki/gobang/releases/download/v0.1.0-alpha.5/gobang-0.1.0-alpha.5-x86_64-unknown-linux-musl.tar.gz" \
+    "gobang"
+}
+
 install_eza() {
   install_tar_binary \
     "eza" \
@@ -870,6 +879,7 @@ main() {
   install_delta
   install_bat
   install_btop
+  install_gobang
   install_zinit
   setup_zsh_files
   write_activation_script
