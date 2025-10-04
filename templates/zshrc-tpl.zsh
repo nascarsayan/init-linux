@@ -5,14 +5,15 @@
 typeset -g __SANDBOX_HAS_BASE=0
 if [[ -n "${SANDBOX_HOME:-}" ]]; then
   __SANDBOX_HAS_BASE=1
-  export XDG_CACHE_HOME="${SANDBOX_HOME}/zsh/cache"
-  export XDG_DATA_HOME="${SANDBOX_HOME}/zinit"
-  export XDG_CONFIG_HOME="${SANDBOX_HOME}/zsh/config"
+  export XDG_CACHE_HOME="${SANDBOX_HOME}/.cache"
+  export XDG_CONFIG_HOME="${SANDBOX_HOME}/.config"
+  export XDG_DATA_HOME="${SANDBOX_HOME}/.local/share"
   : "${ZINIT_HOME:=${SANDBOX_HOME}/zinit/zinit.git}"
-  export TMUX_HOME="${SANDBOX_HOME}/tmux"
   export FZF_HOME="${SANDBOX_HOME}/fzf"
   export KREW_ROOT="${SANDBOX_HOME}/krew"
   export KREW_HOME="${KREW_ROOT}"
+  export HELIX_CONFIG_DIR="${XDG_CONFIG_HOME}/helix"
+  export HELIX_RUNTIME="${HELIX_CONFIG_DIR}/runtime"
   : "${P10K_DEFAULT:=${SANDBOX_HOME}/p10k/p10k.zsh}"
 else
   : "${ZINIT_HOME:=${XDG_DATA_HOME:-${HOME}/.local/share}/zinit/zinit.git}"
@@ -22,9 +23,6 @@ else
 fi
 
 instant_prompt="${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
-if [[ __SANDBOX_HAS_BASE -eq 1 ]]; then
-  instant_prompt="${SANDBOX_HOME}/zsh/cache/p10k-instant-prompt-${(%):-%n}.zsh"
-fi
 [[ -r "${instant_prompt}" ]] && source "${instant_prompt}"
 unset instant_prompt
 
@@ -130,13 +128,6 @@ PYTHONPATH="${PYTHONPATH:-${HOME}/Code/monolith/src/cluster_deployment/deploymen
 export BUN_INSTALL PATH GITTOP PYTHONPATH
 
 [ -f "$HOME/.local/bin/env" ] && . "$HOME/.local/bin/env"
-
-if [[ -z "${TMUX_CONF:-}" && -n "${TMUX_HOME:-}" && -f "${TMUX_HOME}/.tmux.conf" ]]; then
-  export TMUX_CONF="${TMUX_HOME}/.tmux.conf"
-fi
-if command -v tmux >/dev/null 2>&1 && [[ -n "${TMUX_CONF:-}" && -f "${TMUX_CONF}" ]]; then
-  alias tmux="tmux -f ${TMUX_CONF}"
-fi
 
 if command -v kubecolor >/dev/null 2>&1; then
   alias kubectl="kubecolor"
