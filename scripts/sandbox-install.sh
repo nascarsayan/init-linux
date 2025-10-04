@@ -687,6 +687,54 @@ EOF
   log "Created sandbox ssh helper at ${wrapper}"
 }
 
+write_tmux_wrapper() {
+  local wrapper="${BIN_DIR}/sandbox-tmux"
+  local system_tmux
+  system_tmux=$(command -v tmux || true)
+  if [ -z "$system_tmux" ]; then
+    log 'Warning: system tmux not found; skipping sandbox tmux wrapper'
+    return
+  fi
+
+  cat <<'EOF' >"$wrapper"
+#!/usr/bin/env bash
+set -euo pipefail
+
+SANDBOX_HOME="${SANDBOX_HOME:-__BASE__}"
+SYSTEM_TMUX="__TMUX__"
+ENV_SCRIPT="${SANDBOX_HOME}/activate.sh"
+
+if [ -f "${ENV_SCRIPT}" ]; then
+  # shellcheck disable=SC1090
+  source "${ENV_SCRIPT}"
+fi
+
+if [ -z "${SYSTEM_TMUX}" ] || [ ! -x "${SYSTEM_TMUX}" ]; then
+  SYSTEM_TMUX=$(command -v tmux || true)
+fi
+
+if [ -z "${SYSTEM_TMUX}" ]; then
+  echo "[sandbox] system tmux not available" >&2
+  exit 1
+fi
+
+exec "${SYSTEM_TMUX}" "$@"
+EOF
+
+  local base_escaped="${BASE_DIR//\\/\\\\}"
+  base_escaped="${base_escaped//\//\/}"
+  sed -i "s#__BASE__#${base_escaped}#" "$wrapper"
+
+  local tmux_escaped="${system_tmux//\\/\\\\}"
+  tmux_escaped="${tmux_escaped//\//\/}"
+  sed -i "s#__TMUX__#${tmux_escaped}#" "$wrapper"
+
+  chmod +x "$wrapper"
+  ln -sf "$(basename "$wrapper")" "${BIN_DIR}/tmux"
+  log "Created sandbox tmux wrapper at ${wrapper}"
+
+}
+
 install_tmux_local() {
   if ! ensure_command git; then
     log 'Git not available; skipping tmux repo clone'
@@ -806,9 +854,10 @@ main() {
   setup_tmux_files
   write_activation_script
   write_shell_wrapper
+  write_tmux_wrapper
   write_sssh_wrapper
   write_profile_snippet
-  log 'Installation complete. Launch locally with /root/sandbox/bin/sandbox-shell or connect via /root/sandbox/bin/sssh user@host.'
+  log 'Installation complete. Launch locally with /root/sandbox/bin/sandbox-shell, use /root/sandbox/bin/tmux for sandbox tmux, or connect via /root/sandbox/bin/sssh user@host.'
 }
 
 main "$@"
