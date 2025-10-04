@@ -79,9 +79,11 @@ ZSH_DIR="${BASE_DIR}/zsh"
 FZF_DIR="${BASE_DIR}/fzf"
 P10K_DIR="${BASE_DIR}/p10k"
 KREW_DIR="${BASE_DIR}/krew"
-HELIX_DIR="${BASE_DIR}/helix"
-HELIX_RUNTIME_DIR="${HELIX_DIR}/runtime"
-HELIX_CONFIG_DIR="${HELIX_DIR}/config"
+XDG_CACHE_HOME_DIR="${BASE_DIR}/.cache"
+XDG_CONFIG_HOME_DIR="${BASE_DIR}/.config"
+XDG_DATA_HOME_DIR="${BASE_DIR}/.local/share"
+HELIX_CONFIG_DIR="${XDG_CONFIG_HOME_DIR}/helix"
+HELIX_RUNTIME_DIR="${HELIX_CONFIG_DIR}/runtime"
 ZINIT_HOME="${BASE_DIR}/zinit/zinit.git"
 ENV_SCRIPT="${BASE_DIR}/activate.sh"
 PROFILE_SNIPPET="/etc/profile.d/sandbox.sh"
@@ -105,7 +107,9 @@ ensure_dirs() {
     "$FZF_DIR" \
     "$P10K_DIR" \
     "$KREW_DIR" \
-    "$HELIX_DIR" \
+    "$XDG_CACHE_HOME_DIR" \
+    "$XDG_CONFIG_HOME_DIR" \
+    "$XDG_DATA_HOME_DIR" \
     "$HELIX_RUNTIME_DIR" \
     "$HELIX_CONFIG_DIR" \
     "$(dirname "$ZINIT_HOME")"
@@ -493,10 +497,9 @@ install_helix() {
     die 'helix: extracted archive missing helix directory'
   fi
 
-  mkdir -p "$HELIX_DIR"
+  mkdir -p "$HELIX_CONFIG_DIR"
   rm -rf "$HELIX_RUNTIME_DIR"
   cp -r "$extracted/runtime" "$HELIX_RUNTIME_DIR"
-  mkdir -p "$HELIX_CONFIG_DIR"
   if [ ! -f "${HELIX_CONFIG_DIR}/config.toml" ]; then
     cat <<'CFG' >"${HELIX_CONFIG_DIR}/config.toml"
 theme = "catppuccin-macchiato"
@@ -517,7 +520,7 @@ CFG
   install -m 0755 "$extracted/hx" "$BIN_DIR/hx"
 
   rm -rf "$tmp" "$archive"
-  log "Installed helix ${version} with runtime under ${HELIX_DIR}"
+  log "Installed helix ${version} with runtime under ${HELIX_RUNTIME_DIR}"
 }
 
 install_zellij() {
@@ -656,12 +659,15 @@ write_zshenv() {
   cat <<'EOF' >"${ZSH_DIR}/.zshenv"
 export SANDBOX_HOME="${SANDBOX_HOME:-__BASE__}"
 export PATH="${SANDBOX_HOME}/bin:${PATH}"
+export XDG_CACHE_HOME="${SANDBOX_HOME}/.cache"
+export XDG_CONFIG_HOME="${SANDBOX_HOME}/.config"
+export XDG_DATA_HOME="${SANDBOX_HOME}/.local/share"
 export EDITOR="hx"
 export ZINIT_HOME="${SANDBOX_HOME}/zinit/zinit.git"
 export FZF_HOME="${SANDBOX_HOME}/fzf"
 [ -r "${SANDBOX_HOME}/p10k/p10k.zsh" ] && export P10K_CONFIG="${SANDBOX_HOME}/p10k/p10k.zsh"
-export HELIX_RUNTIME="${SANDBOX_HOME}/helix/runtime"
-export HELIX_CONFIG_DIR="${SANDBOX_HOME}/helix/config"
+export HELIX_CONFIG_DIR="${XDG_CONFIG_HOME}/helix"
+export HELIX_RUNTIME="${HELIX_CONFIG_DIR}/runtime"
 export KREW_ROOT="${SANDBOX_HOME}/krew"
 export KREW_HOME="${KREW_ROOT}"
 export PATH="${KREW_ROOT}/bin:${PATH}"
@@ -788,8 +794,11 @@ export ZDOTDIR="${SANDBOX_HOME}/zsh"
 export ZINIT_HOME="${SANDBOX_HOME}/zinit/zinit.git"
 export FZF_HOME="${SANDBOX_HOME}/fzf"
 export EDITOR="hx"
-[ -r "${SANDBOX_HOME}/helix/runtime" ] && export HELIX_RUNTIME="${SANDBOX_HOME}/helix/runtime"
-[ -d "${SANDBOX_HOME}/helix/config" ] && export HELIX_CONFIG_DIR="${SANDBOX_HOME}/helix/config"
+[ -d "${SANDBOX_HOME}/.cache" ] && export XDG_CACHE_HOME="${SANDBOX_HOME}/.cache"
+[ -d "${SANDBOX_HOME}/.config" ] && export XDG_CONFIG_HOME="${SANDBOX_HOME}/.config"
+[ -d "${SANDBOX_HOME}/.local/share" ] && export XDG_DATA_HOME="${SANDBOX_HOME}/.local/share"
+[ -d "${XDG_CONFIG_HOME:-${SANDBOX_HOME}/.config}/helix" ] && export HELIX_CONFIG_DIR="${XDG_CONFIG_HOME:-${SANDBOX_HOME}/.config}/helix"
+[ -d "${HELIX_CONFIG_DIR:-}/runtime" ] && export HELIX_RUNTIME="${HELIX_CONFIG_DIR}/runtime"
 [ -r "${SANDBOX_HOME}/p10k/p10k.zsh" ] && export P10K_CONFIG="${SANDBOX_HOME}/p10k/p10k.zsh"
 export KREW_ROOT="${SANDBOX_HOME}/krew"
 export KREW_HOME="${KREW_ROOT}"

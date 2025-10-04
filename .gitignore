@@ -10,3 +10,5 @@ sn-*
 .dockerignore
 .env
 **/*.env
+# helix binary built using GLIBC 2.28
+hx
