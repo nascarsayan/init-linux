@@ -678,6 +678,8 @@ fi
 remote_host="${@: -1}"
 ssh_args=( "${@:1:$#-1}" )
 
+ssh_args+=( "-tt" )
+
 exec ssh "${ssh_args[@]}" "${remote_host}" "${REMOTE_WRAPPER}"
 EOF
   sed -i "s#__BASE__#${BASE_DIR//\\/\\\\}#" "$wrapper"
