@@ -129,26 +129,27 @@ export BUN_INSTALL PATH GITTOP PYTHONPATH
 
 [ -f "$HOME/.local/bin/env" ] && . "$HOME/.local/bin/env"
 
-if command -v kubecolor >/dev/null 2>&1; then
-  alias kubectl="kubecolor"
-fi
-
 if command -v kubectl >/dev/null 2>&1 && command -v krew >/dev/null 2>&1; then
   export KREW_ROOT="${KREW_ROOT:-${HOME}/.krew}"
   export KREW_HOME="${KREW_HOME:-${KREW_ROOT}}"
 fi
 
 zinit ice blockf
-zinit light Aloxaf/fzf-tab
+# zinit light Aloxaf/fzf-tab
 
 zstyle ':completion:*' menu select
 zstyle ':completion:*:descriptions' format '%d'
-zstyle ':fzf-tab:*' switch-group ',' '.'
+# zstyle ':fzf-tab:*' switch-group ',' '.'
 
 autoload -Uz compinit
 compinit
 
 autoload -U +X bashcompinit && bashcompinit
+
+if command -v kubecolor >/dev/null 2>&1; then
+  alias kubectl="kubecolor"
+  compdef _kubectl kubecolor
+fi
 
 if [[ -n "${P10K_CONFIG:-}" && -f "${P10K_CONFIG}" ]]; then
   source "${P10K_CONFIG}"

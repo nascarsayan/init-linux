@@ -3,7 +3,14 @@ set -euo pipefail
 
 umask 022
 
-SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)
+SCRIPT_SOURCE="$0"
+if declare -p BASH_SOURCE >/dev/null 2>&1; then
+  if [ "${#BASH_SOURCE[@]}" -gt 0 ] && [ -n "${BASH_SOURCE[0]}" ]; then
+    SCRIPT_SOURCE="${BASH_SOURCE[0]}"
+  fi
+fi
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "$SCRIPT_SOURCE")" >/dev/null 2>&1 && pwd)
 TEMPLATE_ZSHRC="${SCRIPT_DIR}/../templates/zshrc-tpl.zsh"
 DEFAULT_TEMPLATE_URL="https://raw.githubusercontent.com/nascarsayan/init-linux/zinit/templates/zshrc-tpl.zsh"
 DEFAULT_P10K_URL="https://raw.githubusercontent.com/nascarsayan/init-linux/zinit/templates/p10k.zsh"
@@ -808,7 +815,7 @@ ssh_args=( "${@:1:$#-1}" )
 
 ssh_args+=( "-tt" )
 
-exec ssh "${ssh_args[@]}" "${remote_host}" "${REMOTE_WRAPPER}"
+exec ssh "${ssh_args[@]}" "${remote_host}" "cd __BASE__ && ${REMOTE_WRAPPER}"
 EOF
   sed -i "s#__BASE__#${BASE_DIR//\\/\\\\}#" "$wrapper"
   chmod +x "$wrapper"
