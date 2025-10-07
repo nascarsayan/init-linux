@@ -95,7 +95,7 @@ ENV_SCRIPT="${BASE_DIR}/activate.sh"
 PROFILE_SNIPPET="/etc/profile.d/sandbox.sh"
 
 cleanup_environment() {
-  require_root
+  # require_root
   log "Removing ${BASE_DIR}"
   rm -rf "$BASE_DIR"
   if [ -f "$PROFILE_SNIPPET" ]; then
@@ -868,7 +868,7 @@ EOF
 }
 
 main() {
-  require_root
+  # require_root
   if [ "$NO_SANDBOX" -eq 1 ]; then
     ensure_base_prereqs
     ensure_zsh || log 'zsh installation skipped (not available)'
