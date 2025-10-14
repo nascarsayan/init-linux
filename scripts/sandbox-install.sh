@@ -312,6 +312,36 @@ install_tar_binary() {
   log "Installed ${name} to ${BIN_DIR}/${binary_name}"
 }
 
+install_zip_binary() {
+  local name="$1" repo="$2" pattern="$3" fallback="$4" binary_name="$5"
+  local archive="$CACHE_DIR/${name}.zip"
+  local url
+  if ! url=$(fetch_latest_asset_url "$repo" "$pattern"); then
+    if [ -n "$fallback" ]; then
+      log "Falling back to pinned ${name} asset"
+      url="$fallback"
+    else
+      die "Unable to locate ${name} release asset"
+    fi
+  fi
+  download_asset "$name" "$url" "$archive"
+  local tmp
+  tmp=$(mktemp -d)
+  if ! unzip -q "$archive" -d "$tmp"; then
+    rm -rf "$tmp" "$archive"
+    die "${name}: failed to extract zip archive"
+  fi
+  local bin_path
+  bin_path=$(find "$tmp" -type f -name "$binary_name" -perm -u+x | head -n 1 || true)
+  if [ -z "$bin_path" ]; then
+    rm -rf "$tmp" "$archive"
+    die "${name}: binary ${binary_name} not located after extraction"
+  fi
+  install -m 0755 "$bin_path" "$BIN_DIR/${binary_name}"
+  rm -rf "$tmp" "$archive"
+  log "Installed ${name} to ${BIN_DIR}/${binary_name}"
+}
+
 install_crush() {
   install_tar_binary \
     "crush" \
@@ -328,6 +358,15 @@ install_croc() {
     "Linux-64bit.*tar.gz" \
     "https://github.com/schollz/croc/releases/download/v10.2.4/croc_v10.2.4_Linux-64bit.tar.gz" \
     "croc"
+}
+
+install_procs() {
+  install_zip_binary \
+    "procs" \
+    "dalance/procs" \
+    "-x86_64-linux\\.zip" \
+    "https://github.com/dalance/procs/releases/download/v0.14.10/procs-v0.14.10-x86_64-linux.zip" \
+    "procs"
 }
 
 install_codex() {
@@ -398,6 +437,15 @@ install_fd() {
     "x86_64-unknown-linux-musl.*tar.gz" \
     "https://github.com/sharkdp/fd/releases/download/v10.3.0/fd-v10.3.0-x86_64-unknown-linux-musl.tar.gz" \
     "fd"
+}
+
+install_xh() {
+  install_tar_binary \
+    "xh" \
+    "ducaale/xh" \
+    "x86_64-unknown-linux-musl.*tar.gz" \
+    "https://github.com/ducaale/xh/releases/download/v0.25.0/xh-v0.25.0-x86_64-unknown-linux-musl.tar.gz" \
+    "xh"
 }
 
 install_ripgrep() {
@@ -885,11 +933,13 @@ main() {
   ensure_zsh || log 'zsh setup skipped'
   install_crush
   install_croc
+  install_procs
   install_codex
   install_gh
   install_fzf
   install_zoxide
   install_fd
+  install_xh
   install_ripgrep
   install_tre
   install_k9s
