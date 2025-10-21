@@ -270,7 +270,7 @@ fetch_latest_asset_url() {
   url=$(curl -fsSL "$api_url" |
     grep -o '"browser_download_url"[^"]*"[^"]*' |
     sed -E 's/^"browser_download_url"[^"]*"([^"]*)$/\1/' |
-    grep -E "$pattern" |
+    grep -E -- "$pattern" |
     head -n 1)
   if [ -n "$url" ]; then
     printf '%s' "$url"
@@ -688,6 +688,31 @@ install_eza() {
     "eza"
 }
 
+install_jnv() {
+  local name="jnv"
+  local archive="$CACHE_DIR/${name}.tar.xz"
+  local url="https://github.com/ynqa/jnv/releases/download/v0.6.1/jnv-x86_64-unknown-linux-musl.tar.xz"
+  download_asset "$name" "$url" "$archive"
+
+  local tmp
+  tmp=$(mktemp -d)
+  if ! tar -xJf "$archive" -C "$tmp"; then
+    rm -rf "$tmp" "$archive"
+    die 'jnv: failed to extract archive'
+  fi
+
+  local bin_path
+  bin_path=$(find "$tmp" -type f -name "jnv" -perm -u+x | head -n 1 || true)
+  if [ -z "$bin_path" ]; then
+    rm -rf "$tmp" "$archive"
+    die 'jnv: binary not found after extraction'
+  fi
+
+  install -m 0755 "$bin_path" "$BIN_DIR/jnv"
+  rm -rf "$tmp" "$archive"
+  log "Installed jnv to ${BIN_DIR}/jnv"
+}
+
 install_yazi() {
   local name="yazi"
   local archive="$CACHE_DIR/${name}.zip"
@@ -946,6 +971,7 @@ main() {
   install_kubecolor
   install_krew
   install_sysz
+  install_jnv
   install_eza
   install_yazi
   install_7zz
