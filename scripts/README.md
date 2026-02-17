@@ -21,6 +21,9 @@ curl -fsSL https://snas.short.gy/linux-init | sudo bash -s -- --cleanup
 # Install to a custom sandbox directory
 curl -fsSL https://snas.short.gy/linux-init | sudo bash -s -- --sandbox-dir /opt/dev-sandbox
 
+# Enable verbose debug trace
+curl -fsSL https://snas.short.gy/linux-init | sudo bash -s -- --debug
+
 # Package-manager only install (no sandbox assets)
 curl -fsSL https://snas.short.gy/linux-init | sudo bash -s -- --no-sandbox
 ```
@@ -113,6 +116,7 @@ docker stop "$container"
 - `SANDBOX_TMUX_TEMPLATE_URL`: override the fallback tmux config URL.
 - `SANDBOX_TMUX_SOCKET`: tmux socket name used by the sandbox tmux alias (defaults to `sayann`).
 - `SANDBOX_P10K_TEMPLATE_URL`: override the fallback Powerlevel10k config URL.
+- `GITHUB_TOKEN`: optional token used for GitHub API `releases/latest` lookups to reduce rate-limit fallbacks.
 - `SANDBOX_ENABLE`: opt-in flag honoured by `/etc/profile.d/sandbox.sh` and tests.
 - `FZF_VERSION`: override the fzf release version downloaded into the sandbox.
 

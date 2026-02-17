@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 umask 022
 
@@ -35,9 +35,14 @@ require_root() {
 CLEANUP_ONLY=0
 NO_SANDBOX=0
 SANDBOX_HOME_ARG=""
+DEBUG=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
+    --debug)
+      DEBUG=1
+      shift
+      ;;
     --cleanup)
       CLEANUP_ONLY=1
       shift
@@ -56,11 +61,12 @@ Usage: sandbox-install.sh [--sandbox-dir <path>] [--no-sandbox] [--cleanup]
 
   (default)        Install a sandboxed environment under /root/sandbox (or --sandbox-dir)
   --sandbox-dir    Set an explicit sandbox directory
+  --debug          Enable bash xtrace logs for troubleshooting
   --no-sandbox     Install packages globally via apt/dnf/brew (no sandbox directories)
   --cleanup        Remove the sandbox directory and profile hook
 
 You can forward flags when piping from curl, e.g.:
-  curl -fsSL <url> | sudo bash -s -- --sandbox-dir /opt/dev-sandbox
+  curl -fsSL <url> | sudo bash -s -- --sandbox-dir /opt/dev-sandbox --debug
 USAGE
       exit 0
       ;;
@@ -69,6 +75,10 @@ USAGE
       ;;
   esac
 done
+
+if [ "$DEBUG" -eq 1 ]; then
+  set -x
+fi
 
 if [ "$NO_SANDBOX" -eq 1 ] && [ "$CLEANUP_ONLY" -eq 1 ]; then
   die "--cleanup cannot be combined with --no-sandbox"
@@ -99,6 +109,7 @@ TMUX_CONF_LOCAL="${TMUX_DIR}/.tmux.conf.local"
 TMUX_SOCKET_NAME_DEFAULT="${SANDBOX_TMUX_SOCKET:-sayann}"
 ENV_SCRIPT="${BASE_DIR}/activate.sh"
 PROFILE_SNIPPET="/etc/profile.d/sandbox.sh"
+GH_API_WARNED=0
 
 cleanup_environment() {
   # require_root
@@ -298,8 +309,27 @@ ensure_tmux() {
 fetch_latest_asset_url() {
   local repo="$1" pattern="$2"
   local api_url="https://api.github.com/repos/${repo}/releases/latest"
-  local url
-  url=$(curl -fsSL "$api_url" |
+  local curl_args=(
+    -fsSL
+    -H "Accept: application/vnd.github+json"
+    -H "X-GitHub-Api-Version: 2022-11-28"
+    -H "User-Agent: sandbox-install"
+  )
+  if [ -n "${GITHUB_TOKEN:-}" ]; then
+    curl_args+=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+  fi
+
+  local api_response url
+  api_response=$(curl "${curl_args[@]}" "$api_url" 2>/dev/null || true)
+  if [ -z "$api_response" ]; then
+    if [ "$GH_API_WARNED" -eq 0 ]; then
+      log "GitHub API unavailable/rate-limited; using pinned release fallbacks. Set GITHUB_TOKEN to increase limits."
+      GH_API_WARNED=1
+    fi
+    return 1
+  fi
+
+  url=$(printf '%s' "$api_response" |
     grep -o '"browser_download_url"[^"]*"[^"]*' |
     sed -E 's/^"browser_download_url"[^"]*"([^"]*)$/\1/' |
     grep -E -- "$pattern" |
