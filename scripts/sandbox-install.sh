@@ -881,7 +881,7 @@ EOF
   fi
 
   sed -i "/^alias ls='eza -lh --group-directories-first --icons=auto'$/d" "$target"
-  sed -i "/^alias tmux='TMUX_CONF=\${SANDBOX_HOME}\\/tmux\\/.tmux.conf TMUX_CONF_LOCAL=\${SANDBOX_HOME}\\/tmux\\/.tmux.conf.local tmux -L \${TMUX_SOCKET_NAME} -f \${SANDBOX_HOME}\\/tmux\\/.tmux.conf'$/d" "$target"
+  sed -i "/^[[:space:]]*alias tmux='TMUX_CONF=\\\${SANDBOX_HOME}\\/tmux\\/.tmux.conf TMUX_CONF_LOCAL=\\\${SANDBOX_HOME}\\/tmux\\/.tmux.conf.local tmux -L \\\${TMUX_SOCKET_NAME} -f \\\${SANDBOX_HOME}\\/tmux\\/.tmux.conf'$/d" "$target"
   cat <<'EOF' >>"$target"
 
 alias ls='eza -lh --group-directories-first --icons=auto'
