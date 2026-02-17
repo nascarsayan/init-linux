@@ -91,6 +91,12 @@ XDG_DATA_HOME_DIR="${BASE_DIR}/.local/share"
 HELIX_CONFIG_DIR="${XDG_CONFIG_HOME_DIR}/helix"
 HELIX_RUNTIME_DIR="${HELIX_CONFIG_DIR}/runtime"
 ZINIT_HOME="${BASE_DIR}/zinit/zinit.git"
+TMUX_DIR="${BASE_DIR}/tmux"
+TMUX_MAIN_REPO_DIR="${TMUX_DIR}/.tmux"
+TMUX_LOCAL_REPO_DIR="${TMUX_DIR}/.tmux.local"
+TMUX_CONF="${TMUX_DIR}/.tmux.conf"
+TMUX_CONF_LOCAL="${TMUX_DIR}/.tmux.conf.local"
+TMUX_SOCKET_NAME_DEFAULT="${SANDBOX_TMUX_SOCKET:-sayann}"
 ENV_SCRIPT="${BASE_DIR}/activate.sh"
 PROFILE_SNIPPET="/etc/profile.d/sandbox.sh"
 
@@ -109,6 +115,7 @@ ensure_dirs() {
   mkdir -p \
     "$BIN_DIR" \
     "$CACHE_DIR" \
+    "$TMUX_DIR" \
     "$ZSH_DIR" \
     "$FZF_DIR" \
     "$P10K_DIR" \
@@ -157,14 +164,14 @@ install_global_packages() {
   detect_pkg_manager
   case "$pkg_manager" in
     apt)
-      for pkg in fzf zoxide; do
+      for pkg in zsh tmux fzf zoxide; do
         if ! install_pkg "$pkg"; then
           log "Warning: unable to install $pkg via apt"
         fi
       done
       ;;
     dnf)
-      for pkg in fzf zoxide; do
+      for pkg in zsh tmux fzf zoxide; do
         if ! install_pkg "$pkg"; then
           log "Warning: unable to install $pkg via dnf"
         fi
@@ -172,7 +179,7 @@ install_global_packages() {
       ;;
     *)
       if command -v brew >/dev/null 2>&1; then
-        for pkg in fzf zoxide; do
+        for pkg in zsh tmux fzf zoxide; do
           brew install "$pkg" || log "Warning: unable to install $pkg via brew"
         done
       else
@@ -257,6 +264,31 @@ ensure_zsh() {
         brew install zsh >/dev/null
       else
         log 'zsh unavailable (no apt/dnf/brew); skipping shell setup'
+        return 1
+      fi
+      ;;
+  esac
+}
+
+ensure_tmux() {
+  if ensure_command tmux; then
+    return
+  fi
+  log 'tmux not found; attempting installation'
+  detect_pkg_manager
+  case "$pkg_manager" in
+    apt)
+      install_pkg tmux
+      ;;
+    dnf)
+      install_pkg tmux
+      ;;
+    *)
+      if ensure_command brew; then
+        log 'installing tmux via Homebrew'
+        brew install tmux >/dev/null
+      else
+        log 'tmux unavailable (no apt/dnf/brew); skipping tmux setup'
         return 1
       fi
       ;;
@@ -819,9 +851,14 @@ EOF
   fi
 
   sed -i "/^alias ls='eza -lh --group-directories-first --icons=auto'$/d" "$target"
+  sed -i "/^alias tmux='TMUX_CONF=\${SANDBOX_HOME}\\/tmux\\/.tmux.conf TMUX_CONF_LOCAL=\${SANDBOX_HOME}\\/tmux\\/.tmux.conf.local tmux -L \${TMUX_SOCKET_NAME} -f \${SANDBOX_HOME}\\/tmux\\/.tmux.conf'$/d" "$target"
   cat <<'EOF' >>"$target"
 
 alias ls='eza -lh --group-directories-first --icons=auto'
+if [[ -n "${SANDBOX_HOME:-}" ]]; then
+  : "${TMUX_SOCKET_NAME:=sayann}"
+  alias tmux='TMUX_CONF=${SANDBOX_HOME}/tmux/.tmux.conf TMUX_CONF_LOCAL=${SANDBOX_HOME}/tmux/.tmux.conf.local tmux -L ${TMUX_SOCKET_NAME} -f ${SANDBOX_HOME}/tmux/.tmux.conf'
+fi
 EOF
 }
 
@@ -895,12 +932,101 @@ EOF
   log "Created sandbox ssh helper at ${wrapper}"
 }
 
+write_sbox_wrapper() {
+  local wrapper="${BIN_DIR}/sbox"
+  cat <<'EOF' >"$wrapper"
+#!/usr/bin/env bash
+set -euo pipefail
+
+SANDBOX_HOME="${SANDBOX_HOME:-__BASE__}"
+INSTALLER_URL="${SANDBOX_INSTALLER_URL:-https://snas.short.gy/linux-init}"
+SELF_PATH="${BASH_SOURCE[0]}"
+SBOX_BIN_DIR="$(cd -- "$(dirname -- "$SELF_PATH")" >/dev/null 2>&1 && pwd)"
+SHELL_WRAPPER="${SBOX_BIN_DIR}/sandbox-shell"
+SSH_WRAPPER="${SBOX_BIN_DIR}/sssh"
+
+usage() {
+  cat <<'USAGE'
+usage: sbox <command>
+
+commands:
+  update        Re-run installer for this sandbox (updates binaries/config)
+  update-bins   Alias of update
+  shell         Launch sandbox zsh login shell
+  ssh           Run sandbox ssh helper (sssh)
+  help          Show this help
+USAGE
+}
+
+run_update() {
+  if [ "$(id -u)" -ne 0 ]; then
+    echo "[sbox] update must run as root" >&2
+    exit 1
+  fi
+  curl -fsSL "$INSTALLER_URL" | bash -s -- --sandbox-dir "$SANDBOX_HOME"
+}
+
+cmd="${1:-help}"
+case "$cmd" in
+  update|update-bins)
+    run_update
+    ;;
+  shell)
+    shift || true
+    exec "$SHELL_WRAPPER" "$@"
+    ;;
+  ssh)
+    shift || true
+    exec "$SSH_WRAPPER" "$@"
+    ;;
+  help|-h|--help)
+    usage
+    ;;
+  *)
+    echo "[sbox] unknown command: $cmd" >&2
+    usage >&2
+    exit 1
+    ;;
+esac
+EOF
+  sed -i "s#__BASE__#${BASE_DIR//\\/\\\\}#" "$wrapper"
+  chmod +x "$wrapper"
+  log "Created sandbox lifecycle helper at ${wrapper}"
+}
+
 install_zinit() {
   if [ -d "$ZINIT_HOME" ]; then
     log 'Zinit already present; fetching latest changes'
     git -C "$ZINIT_HOME" pull --ff-only >/dev/null 2>&1 || log 'Warning: unable to update existing zinit clone'
   else
     git clone --depth 1 https://github.com/zdharma-continuum/zinit.git "$ZINIT_HOME" >/dev/null 2>&1
+  fi
+}
+
+setup_tmux_files() {
+  local fallback_local_url="${SANDBOX_TMUX_TEMPLATE_URL:-https://raw.githubusercontent.com/gpakosz/.tmux/master/.tmux.conf.local}"
+
+  if ! ensure_command tmux; then
+    log 'Warning: tmux not installed; skipping tmux config setup'
+    return
+  fi
+
+  git_clone_or_update "https://github.com/gpakosz/.tmux.git" "$TMUX_MAIN_REPO_DIR"
+  if [ ! -f "${TMUX_MAIN_REPO_DIR}/.tmux.conf" ]; then
+    log "Warning: ${TMUX_MAIN_REPO_DIR}/.tmux.conf not found after clone"
+    return
+  fi
+  ln -sfn "${TMUX_MAIN_REPO_DIR}/.tmux.conf" "$TMUX_CONF"
+
+  git_clone_or_update "https://github.com/nascarsayan/.tmux.local.git" "$TMUX_LOCAL_REPO_DIR"
+  if [ -f "${TMUX_LOCAL_REPO_DIR}/.tmux.conf.local" ]; then
+    ln -sfn "${TMUX_LOCAL_REPO_DIR}/.tmux.conf.local" "$TMUX_CONF_LOCAL"
+  elif [ -f "${TMUX_MAIN_REPO_DIR}/.tmux.conf.local" ]; then
+    cp -f "${TMUX_MAIN_REPO_DIR}/.tmux.conf.local" "$TMUX_CONF_LOCAL"
+  elif curl -fsSL "$fallback_local_url" -o "$TMUX_CONF_LOCAL"; then
+    chmod 0644 "$TMUX_CONF_LOCAL"
+  else
+    log "Warning: unable to provision ${TMUX_CONF_LOCAL}"
   fi
 }
 
@@ -922,8 +1048,12 @@ export P10K_CONFIG="${SANDBOX_HOME}/p10k/p10k.zsh"
 export KREW_ROOT="${SANDBOX_HOME}/krew"
 export KREW_HOME="${KREW_ROOT}"
 export PATH="${KREW_ROOT}/bin:${PATH}"
+export TMUX_CONF="${SANDBOX_HOME}/tmux/.tmux.conf"
+export TMUX_CONF_LOCAL="${SANDBOX_HOME}/tmux/.tmux.conf.local"
+export TMUX_SOCKET_NAME="${TMUX_SOCKET_NAME:-__TMUX_SOCKET_NAME__}"
 EOF
   sed -i "s#__BASE__#${BASE_DIR//\/\\}#" "$ENV_SCRIPT"
+  sed -i "s#__TMUX_SOCKET_NAME__#${TMUX_SOCKET_NAME_DEFAULT//\/\\}#" "$ENV_SCRIPT"
   chmod 0644 "$ENV_SCRIPT"
 }
 
@@ -945,6 +1075,7 @@ main() {
   if [ "$NO_SANDBOX" -eq 1 ]; then
     ensure_base_prereqs
     ensure_zsh || log 'zsh installation skipped (not available)'
+    ensure_tmux || log 'tmux installation skipped (not available)'
     install_global_packages
     log 'Global installation completed.'
     return
@@ -956,6 +1087,7 @@ main() {
   ensure_dirs
   ensure_base_prereqs
   ensure_zsh || log 'zsh setup skipped'
+  ensure_tmux || log 'tmux setup skipped'
   install_crush
   install_croc
   install_procs
@@ -984,13 +1116,15 @@ main() {
   install_gobang
   install_duf
   install_broot
+  setup_tmux_files
   install_zinit
   setup_zsh_files
   write_activation_script
   write_shell_wrapper
   write_sssh_wrapper
+  write_sbox_wrapper
   write_profile_snippet
-  log 'Installation complete. Launch locally with /root/sandbox/bin/sandbox-shell or connect via /root/sandbox/bin/sssh user@host.'
+  log "Installation complete. Launch ${BASE_DIR}/bin/sbox help to see lifecycle commands."
 }
 
 main "$@"

@@ -65,6 +65,10 @@ mkcd() {
 
 alias mkcd=mkcd
 alias ls='eza -lh --group-directories-first --icons=auto'
+if (( __SANDBOX_HAS_BASE )); then
+  : "${TMUX_SOCKET_NAME:=sayann}"
+  alias tmux='TMUX_CONF=${SANDBOX_HOME}/tmux/.tmux.conf TMUX_CONF_LOCAL=${SANDBOX_HOME}/tmux/.tmux.conf.local tmux -L ${TMUX_SOCKET_NAME} -f ${SANDBOX_HOME}/tmux/.tmux.conf'
+fi
 
 if command -v pass >/dev/null 2>&1; then
   sshp() {
