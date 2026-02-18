@@ -1080,10 +1080,6 @@ case "$cmd" in
         ;;
     esac
     ;;
-  install-claude-code|claude-code)
-    # Backward-compatible aliases.
-    run_install_claude_code
-    ;;
   shell)
     shift || true
     exec "$SHELL_WRAPPER" "$@"

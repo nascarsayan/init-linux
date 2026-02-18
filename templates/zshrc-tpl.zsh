@@ -164,6 +164,8 @@ elif [[ -f "${P10K_DEFAULT}" ]]; then
 fi
 unset P10K_DEFAULT
 
+WORDCHARS=''
+
 [[ -f "$HOME/.fzf.zsh" ]] && source "$HOME/.fzf.zsh"
 
 bindkey -e
