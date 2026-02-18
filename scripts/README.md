@@ -15,11 +15,11 @@ sudo scripts/sandbox-install.sh
 # Or curl | bash (requires root)
 curl -fsSL https://snas.short.gy/linux-init | sudo bash
 
+# Install to a custom sandbox directory
+curl -fsSL https://snas.short.gy/linux-init | sudo bash -s -- --sandbox-dir /root/sayann/dev
+
 # Remove the sandbox later
 curl -fsSL https://snas.short.gy/linux-init | sudo bash -s -- --cleanup
-
-# Install to a custom sandbox directory
-curl -fsSL https://snas.short.gy/linux-init | sudo bash -s -- --sandbox-dir /opt/dev-sandbox
 
 # Enable verbose debug trace
 curl -fsSL https://snas.short.gy/linux-init | sudo bash -s -- --debug
