@@ -68,6 +68,12 @@ Once activated, binaries reside in `/root/sandbox/bin`, `ZDOTDIR=/root/sandbox/z
 
 # Sandbox SSH helper passthrough
 /root/sandbox/bin/sbox ssh root@host
+
+# Install/update Claude Code toolchain:
+# - n (if missing) + latest Node.js
+# - bun (if missing)
+# - @anthropic/claude-code via bun
+/root/sandbox/bin/sbox install claude-code
 ```
 
 Example SSH config entry:

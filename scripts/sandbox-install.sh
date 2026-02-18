@@ -982,6 +982,8 @@ usage: sbox <command>
 commands:
   update        Re-run installer for this sandbox (updates binaries/config)
   update-bins   Alias of update
+  install claude-code
+               Install/update n + latest Node, bun, and Claude Code
   shell         Launch sandbox zsh login shell
   ssh           Run sandbox ssh helper (sssh)
   help          Show this help
@@ -996,10 +998,91 @@ run_update() {
   curl -fsSL "$INSTALLER_URL" | bash -s -- --sandbox-dir "$SANDBOX_HOME"
 }
 
+run_install_claude_code() {
+  local n_install_url="https://bit.ly/n-install"
+  local bun_install_url="https://bun.com/install"
+  local claude_pkg_primary="@anthropic-ai/claude-code"
+  local claude_pkg_fallback="@anthropic/claude-code"
+
+  export PATH="$HOME/n/bin:$HOME/.bun/bin:$PATH"
+
+  ensure_libatomic() {
+    if command -v ldconfig >/dev/null 2>&1 && ldconfig -p 2>/dev/null | grep -q 'libatomic\.so\.1'; then
+      return
+    fi
+    echo "[sbox] libatomic.so.1 missing; attempting install..."
+    if command -v apt-get >/dev/null 2>&1; then
+      apt-get update -y >/dev/null
+      apt-get install -y libatomic1 >/dev/null
+    elif command -v dnf >/dev/null 2>&1; then
+      dnf install -y libatomic >/dev/null
+    elif command -v yum >/dev/null 2>&1; then
+      yum install -y libatomic >/dev/null
+    else
+      echo "[sbox] unable to auto-install libatomic (unsupported package manager)" >&2
+      return 1
+    fi
+  }
+
+  if ! command -v n >/dev/null 2>&1; then
+    echo "[sbox] n not found; installing via n-install..."
+    curl -fsSL "$n_install_url" | bash -s -- -y
+  fi
+  export PATH="$HOME/n/bin:$PATH"
+  if ! command -v n >/dev/null 2>&1; then
+    echo "[sbox] n installation failed (n not on PATH)" >&2
+    exit 1
+  fi
+
+  echo "[sbox] installing/updating Node.js (latest) via n..."
+  n latest
+  ensure_libatomic || true
+  hash -r
+  export PATH="$HOME/n/bin:$PATH"
+  if ! command -v node >/dev/null 2>&1; then
+    echo "[sbox] node not found after n latest" >&2
+    exit 1
+  fi
+
+  if ! command -v bun >/dev/null 2>&1; then
+    echo "[sbox] bun not found; installing..."
+    curl -fsSL "$bun_install_url" | bash
+  fi
+  export PATH="$HOME/.bun/bin:$PATH"
+  if ! command -v bun >/dev/null 2>&1; then
+    echo "[sbox] bun installation failed (bun not on PATH)" >&2
+    exit 1
+  fi
+
+  echo "[sbox] installing/updating Claude Code via bun..."
+  if bun i -g "$claude_pkg_primary"; then
+    return
+  fi
+  echo "[sbox] primary package ${claude_pkg_primary} failed; trying ${claude_pkg_fallback}..."
+  bun i -g "$claude_pkg_fallback"
+}
+
 cmd="${1:-help}"
+subcmd="${2:-}"
 case "$cmd" in
   update|update-bins)
     run_update
+    ;;
+  install)
+    case "$subcmd" in
+      claude-code)
+        run_install_claude_code
+        ;;
+      *)
+        echo "[sbox] unknown install target: ${subcmd:-<empty>}" >&2
+        usage >&2
+        exit 1
+        ;;
+    esac
+    ;;
+  install-claude-code|claude-code)
+    # Backward-compatible aliases.
+    run_install_claude_code
     ;;
   shell)
     shift || true
