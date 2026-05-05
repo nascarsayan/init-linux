@@ -1,0 +1,93 @@
+﻿{
+    "Version":  "1.0",
+    "Settings":  [
+                     {
+                         "Value":  true,
+                         "Name":  "RemoveApps"
+                     },
+                     {
+                         "Value":  "Microsoft.BingNews,Microsoft.BingSearch,Microsoft.BingWeather,Clipchamp.Clipchamp,MicrosoftWindows.CrossDevice,Microsoft.Windows.DevHome,Microsoft.WindowsFeedbackHub,Microsoft.GetHelp,Microsoft.Todos,Microsoft.MicrosoftOfficeHub,Microsoft.OneDrive,Microsoft.OutlookForWindows,Microsoft.PowerAutomateDesktop,Microsoft.MicrosoftSolitaireCollection,Microsoft.MicrosoftStickyNotes,MicrosoftWindows.Client.WebExperience",
+                         "Name":  "Apps"
+                     },
+                     {
+                         "Value":  true,
+                         "Name":  "DisableClickToDo"
+                     },
+                     {
+                         "Value":  true,
+                         "Name":  "DisableStartRecommended"
+                     },
+                     {
+                         "Value":  true,
+                         "Name":  "DisableRecall"
+                     },
+                     {
+                         "Value":  true,
+                         "Name":  "ShowKnownFileExt"
+                     },
+                     {
+                         "Value":  true,
+                         "Name":  "DisableCopilot"
+                     },
+                     {
+                         "Value":  true,
+                         "Name":  "DisableNotepadAI"
+                     },
+                     {
+                         "Value":  true,
+                         "Name":  "DisablePaintAI"
+                     },
+                     {
+                         "Value":  true,
+                         "Name":  "DisableBing"
+                     },
+                     {
+                         "Value":  true,
+                         "Name":  "DisableAISvcAutoStart"
+                     },
+                     {
+                         "Value":  true,
+                         "Name":  "RevertContextMenu"
+                     },
+                     {
+                         "Value":  true,
+                         "Name":  "DisableLockscreenTips"
+                     },
+                     {
+                         "Value":  true,
+                         "Name":  "DisableEdgeAds"
+                     },
+                     {
+                         "Value":  true,
+                         "Name":  "DisableTelemetry"
+                     },
+                     {
+                         "Value":  true,
+                         "Name":  "DisableSuggestions"
+                     },
+                     {
+                         "Value":  true,
+                         "Name":  "HideOnedrive"
+                     },
+                     {
+                         "Value":  true,
+                         "Name":  "DisableSettings365Ads"
+                     },
+                     {
+                         "Value":  true,
+                         "Name":  "ShowHiddenFolders"
+                     },
+                     {
+                         "Value":  true,
+                         "Name":  "DisableStoreSearchSuggestions"
+                     },
+                     {
+                         "Value":  true,
+                         "Name":  "DisableStickyKeys"
+                     },
+                     {
+                         "Value":  true,
+                         "Name":  "CreateRestorePoint"
+                     }
+                 ]
+}
