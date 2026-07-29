@@ -25,11 +25,43 @@ die() {
   exit 1
 }
 
-require_root() {
-  if [ "$(id -u)" -ne 0 ]; then
-    die 'this installer must run as root (sudo) to manage sandbox assets and profile hooks'
+warn() {
+  log "Warning: $*"
+}
+
+# Individual tool installs call die() on a failed download/extract, which would
+# abort the whole run before the shell config, wrappers and ',' alias are
+# written. Run them in a subshell so their exit only kills that one step.
+try_step() {
+  local step="$1"
+  if ! ( "$step" ); then
+    warn "step '${step}' failed; continuing"
   fi
 }
+
+IS_ROOT=0
+[ "$(id -u)" -eq 0 ] && IS_ROOT=1
+
+# Root is optional. Everything under $BASE_DIR is written as the invoking user;
+# only the system-wide bits (package installs, /etc/profile.d hook) need
+# elevation, and those degrade to a warning instead of aborting the run.
+# Resolves to '' when root, 'sudo -n' when passwordless sudo works, else unset
+# -> callers skip the privileged step.
+SUDO=""
+HAVE_PRIV=0
+detect_priv() {
+  if [ "$IS_ROOT" -eq 1 ]; then
+    SUDO=""
+    HAVE_PRIV=1
+  elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+    SUDO="sudo -n"
+    HAVE_PRIV=1
+  else
+    SUDO=""
+    HAVE_PRIV=0
+  fi
+}
+detect_priv
 
 # Flags
 CLEANUP_ONLY=0
@@ -59,14 +91,20 @@ while [ $# -gt 0 ]; do
       cat <<'USAGE'
 Usage: sandbox-install.sh [--sandbox-dir <path>] [--no-sandbox] [--cleanup]
 
-  (default)        Install a sandboxed environment under /root/sandbox (or --sandbox-dir)
+  (default)        Install a sandboxed environment under ~/sandbox
+                   (/root/sandbox when run as root), or --sandbox-dir
   --sandbox-dir    Set an explicit sandbox directory
   --debug          Enable bash xtrace logs for troubleshooting
   --no-sandbox     Install packages globally via apt/dnf/brew (no sandbox directories)
   --cleanup        Remove the sandbox directory and profile hook
 
+Root is NOT required. Without root (or passwordless sudo) the installer skips
+system package installs and the /etc/profile.d/sandbox.sh hook, warns, and
+continues; everything else lands under the sandbox directory. Use the ',' alias
+it adds to your shell rc, or <sandbox-dir>/bin/sandbox-shell, to enter it.
+
 You can forward flags when piping from curl, e.g.:
-  curl -fsSL <url> | sudo bash -s -- --sandbox-dir /opt/dev-sandbox --debug
+  curl -fsSL <url> | bash -s -- --sandbox-dir "$HOME/dev" --debug
 USAGE
       exit 0
       ;;
@@ -84,7 +122,13 @@ if [ "$NO_SANDBOX" -eq 1 ] && [ "$CLEANUP_ONLY" -eq 1 ]; then
   die "--cleanup cannot be combined with --no-sandbox"
 fi
 
-DEFAULT_SANDBOX_HOME=/root/sandbox
+# /root/sandbox is only writable when actually root; fall back to the invoking
+# user's home so a non-root run has a sane default instead of a permission error.
+if [ "$IS_ROOT" -eq 1 ]; then
+  DEFAULT_SANDBOX_HOME=/root/sandbox
+else
+  DEFAULT_SANDBOX_HOME="${HOME:-$(cd ~ && pwd)}/sandbox"
+fi
 SANDBOX_HOME=${SANDBOX_HOME_ARG:-${SANDBOX_HOME:-$DEFAULT_SANDBOX_HOME}}
 
 # Sandbox paths
@@ -112,12 +156,15 @@ PROFILE_SNIPPET="/etc/profile.d/sandbox.sh"
 GH_API_WARNED=0
 
 cleanup_environment() {
-  # require_root
   log "Removing ${BASE_DIR}"
   rm -rf "$BASE_DIR"
   if [ -f "$PROFILE_SNIPPET" ]; then
-    log "Removing ${PROFILE_SNIPPET}"
-    rm -f "$PROFILE_SNIPPET"
+    if [ "$HAVE_PRIV" -eq 1 ]; then
+      log "Removing ${PROFILE_SNIPPET}"
+      $SUDO rm -f "$PROFILE_SNIPPET" || warn "unable to remove ${PROFILE_SNIPPET}"
+    else
+      warn "skipping removal of ${PROFILE_SNIPPET} (needs root); delete it manually if unwanted"
+    fi
   fi
   log "Cleanup complete"
 }
@@ -154,19 +201,74 @@ detect_pkg_manager() {
   fi
 }
 
+# Last-resort dnf path for hosts whose only configured repo is an unreachable
+# internal mirror. Typical cluster-node failure:
+#   Errors during downloading metadata for repository 'local-yum':
+#     - Curl error (7): Couldn't connect to server ... Connection refused
+# which makes every package install fail, zsh included.
+#
+# Bypasses the configured repos entirely with an ephemeral --repofrompath against
+# the public Rocky mirror; nothing is written to /etc/yum.repos.d, so the host's
+# repo config is unchanged. GPG and TLS verification are disabled because these
+# hosts often have neither the public GPG keys nor a CA bundle that trusts the
+# mirror. That is a deliberate trade-off for bootstrapping a dev sandbox over a
+# trusted network -- do not copy this into production provisioning.
+dnf_public_fallback() {
+  local arch major base
+  arch="$(uname -m)"
+  major=""
+  if [ -r /etc/os-release ]; then
+    major="$( . /etc/os-release 2>/dev/null; printf '%s' "${VERSION_ID%%.*}" )"
+  fi
+  case "$major" in
+    8|9|10) ;;
+    *)
+      warn "no public mirror known for VERSION_ID='${major:-unknown}'; skipping public-repo fallback"
+      return 1
+      ;;
+  esac
+  base="https://dl.rockylinux.org/pub/rocky/${major}"
+  warn "configured repos failed; retrying via public Rocky ${major} mirror with GPG/TLS verification DISABLED: $*"
+  $SUDO dnf \
+    --disablerepo='*' \
+    --repofrompath="pub-baseos,${base}/BaseOS/${arch}/os/" \
+    --repofrompath="pub-appstream,${base}/AppStream/${arch}/os/" \
+    --setopt=sslverify=0 \
+    --setopt=pub-baseos.sslverify=0 \
+    --setopt=pub-appstream.sslverify=0 \
+    --nogpgcheck -y install "$@" >/dev/null 2>&1
+}
+
+# Never fatal: a failed system package install just means the corresponding
+# sandbox tool is skipped. Returns non-zero so callers can react.
 install_pkg() {
+  if [ "$HAVE_PRIV" -ne 1 ]; then
+    warn "cannot install system package(s) '$*' without root/passwordless sudo; skipping"
+    return 1
+  fi
   case "$pkg_manager" in
     apt)
       log "Installing package via apt: $*"
-      DEBIAN_FRONTEND=noninteractive apt-get update -y >/dev/null
-      DEBIAN_FRONTEND=noninteractive apt-get install -y "$@" >/dev/null
+      $SUDO env DEBIAN_FRONTEND=noninteractive apt-get update -y >/dev/null 2>&1 || true
+      $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y "$@" >/dev/null 2>&1 || {
+        warn "apt-get install failed for: $*"
+        return 1
+      }
       ;;
     dnf)
       log "Installing package via dnf: $*"
-      dnf install -y "$@" >/dev/null
+      if $SUDO dnf install -y "$@" >/dev/null 2>&1; then
+        :
+      elif dnf_public_fallback "$@"; then
+        log "Installed via public-mirror fallback: $*"
+      else
+        warn "dnf install failed for: $*"
+        return 1
+      fi
       ;;
     *)
-      die "no supported package manager for installing $*"
+      warn "no supported package manager for installing $*"
+      return 1
       ;;
   esac
 }
@@ -211,49 +313,29 @@ git_clone_or_update() {
 }
 
 ensure_base_prereqs() {
+  # curl/tar/gzip are load-bearing for every download step; without them there
+  # is nothing to install, so these stay fatal.
   for cmd in curl tar gzip; do
     if ! ensure_command "$cmd"; then
       die "required command '$cmd' not found"
     fi
   done
-  if ! ensure_command unzip; then
-    detect_pkg_manager
-    if [ -n "$pkg_manager" ]; then
-      install_pkg unzip
-    else
-      die "required command 'unzip' not found and unable to install automatically"
-    fi
-  fi
+  # The rest gate individual tools only. Without root we cannot install them,
+  # so warn and let the affected installers skip themselves.
+  detect_pkg_manager
+  ensure_command unzip || install_pkg unzip \
+    || warn "'unzip' unavailable; tools shipped as zip archives will be skipped"
   if ! ensure_command xz; then
-    detect_pkg_manager
     case "$pkg_manager" in
-      apt)
-        install_pkg xz-utils
-        ;;
-      dnf)
-        install_pkg xz
-        ;;
-      *)
-        die "required command 'xz' not found and unable to install automatically"
-        ;;
+      apt) install_pkg xz-utils || true ;;
+      dnf) install_pkg xz || true ;;
     esac
+    ensure_command xz || warn "'xz' unavailable; tools shipped as .tar.xz will be skipped"
   fi
-  if ! ensure_command find; then
-    detect_pkg_manager
-    if [ -n "$pkg_manager" ]; then
-      install_pkg findutils
-    else
-      die "required command 'find' not found and unable to install automatically"
-    fi
-  fi
-  if ! ensure_command git; then
-    detect_pkg_manager
-    if [ -n "$pkg_manager" ]; then
-      install_pkg git
-    else
-      die 'git not found and unable to install automatically'
-    fi
-  fi
+  ensure_command find || install_pkg findutils \
+    || warn "'find' unavailable; archive-extraction helpers may misbehave"
+  ensure_command git || install_pkg git \
+    || warn "'git' unavailable; zinit and tmux config setup will be skipped"
 }
 
 ensure_zsh() {
@@ -263,22 +345,20 @@ ensure_zsh() {
   log 'zsh not found; attempting installation'
   detect_pkg_manager
   case "$pkg_manager" in
-    apt)
-      install_pkg zsh
-      ;;
-    dnf)
-      install_pkg zsh
+    apt|dnf)
+      install_pkg zsh || return 1
       ;;
     *)
       if ensure_command brew; then
         log 'installing zsh via Homebrew'
-        brew install zsh >/dev/null
+        brew install zsh >/dev/null || return 1
       else
         log 'zsh unavailable (no apt/dnf/brew); skipping shell setup'
         return 1
       fi
       ;;
   esac
+  ensure_command zsh
 }
 
 ensure_tmux() {
@@ -288,22 +368,20 @@ ensure_tmux() {
   log 'tmux not found; attempting installation'
   detect_pkg_manager
   case "$pkg_manager" in
-    apt)
-      install_pkg tmux
-      ;;
-    dnf)
-      install_pkg tmux
+    apt|dnf)
+      install_pkg tmux || return 1
       ;;
     *)
       if ensure_command brew; then
         log 'installing tmux via Homebrew'
-        brew install tmux >/dev/null
+        brew install tmux >/dev/null || return 1
       else
         log 'tmux unavailable (no apt/dnf/brew); skipping tmux setup'
         return 1
       fi
       ;;
   esac
+  ensure_command tmux
 }
 
 fetch_latest_asset_url() {
@@ -854,6 +932,31 @@ export HELIX_RUNTIME="${HELIX_CONFIG_DIR}/runtime"
 export KREW_ROOT="${SANDBOX_HOME}/krew"
 export KREW_HOME="${KREW_ROOT}"
 export PATH="${KREW_ROOT}/bin:${PATH}"
+export BUN_INSTALL="${SANDBOX_HOME}/.bun"
+export PATH="${BUN_INSTALL}/bin:${PATH}"
+typeset -gU path
+
+# Strip Synopsys Verdi PLI dirs from LD_LIBRARY_PATH for interactive shells.
+# Must happen in .zshenv (before /etc/zshrc -> /etc/profile.d/*.sh spawns
+# subprocesses like grepconf, flatpak, tclsh autoinit, locale, sed). With
+# verdi's PLI dirs in LD, glibc walks 4 NFS dirs x ~10 hwcaps/tls variants
+# x ~10 libs for every child, ~1000 cold-NFS stats per shell startup.
+# `eda_on` restores; needed if running VCS/Verdi.
+if [[ -o interactive && -n "${LD_LIBRARY_PATH:-}" ]]; then
+  export __ORIG_LD_LIBRARY_PATH="$LD_LIBRARY_PATH"
+  typeset -a __ld_parts __ld_kept
+  __ld_parts=("${(@s/:/)LD_LIBRARY_PATH}")
+  __ld_kept=(${__ld_parts:#/tools/synopsys/*})
+  export LD_LIBRARY_PATH="${(j/:/)__ld_kept}"
+  unset __ld_parts __ld_kept
+fi
+eda_on()  { [[ -n "${__ORIG_LD_LIBRARY_PATH:-}" ]] && export LD_LIBRARY_PATH="$__ORIG_LD_LIBRARY_PATH"; }
+eda_off() {
+  local -a parts kept
+  parts=("${(@s/:/)LD_LIBRARY_PATH}")
+  kept=(${parts:#/tools/synopsys/*})
+  export LD_LIBRARY_PATH="${(j/:/)kept}"
+}
 EOF
   sed -i "s#__BASE__#${BASE_DIR//\/\\}#" "${ZSH_DIR}/.zshenv"
 }
@@ -880,15 +983,23 @@ EOF
     fi
   fi
 
-  sed -i "/^alias ls='eza -lh --group-directories-first --icons=auto'$/d" "$target"
-  sed -i "/^[[:space:]]*alias tmux='TMUX_CONF=\\\${SANDBOX_HOME}\\/tmux\\/.tmux.conf TMUX_CONF_LOCAL=\\\${SANDBOX_HOME}\\/tmux\\/.tmux.conf.local tmux -L \\\${TMUX_SOCKET_NAME} -f \\\${SANDBOX_HOME}\\/tmux\\/.tmux.conf'$/d" "$target"
+  # Sandbox-local aliases live in a marker-delimited block. Drop any previous
+  # block first, then also strip unmarked copies: the common `curl | bash` path
+  # has no local templates and fetches the published one, which may predate the
+  # markers and still carry these aliases inline. Without this the block is
+  # appended on top of them and every alias ends up defined twice.
+  sed -i '/^# >>> sandbox aliases >>>$/,/^# <<< sandbox aliases <<<$/d' "$target"
+  sed -i "/^[[:space:]]*alias ls='eza /d" "$target"
+  sed -i '/^[[:space:]]*alias tmux=.TMUX_CONF=/d' "$target"
   cat <<'EOF' >>"$target"
 
+# >>> sandbox aliases >>>
 alias ls='eza -lh --group-directories-first --icons=auto'
 if [[ -n "${SANDBOX_HOME:-}" ]]; then
   : "${TMUX_SOCKET_NAME:=sayann}"
   alias tmux='TMUX_CONF=${SANDBOX_HOME}/tmux/.tmux.conf TMUX_CONF_LOCAL=${SANDBOX_HOME}/tmux/.tmux.conf.local tmux -L ${TMUX_SOCKET_NAME} -f ${SANDBOX_HOME}/tmux/.tmux.conf'
 fi
+# <<< sandbox aliases <<<
 EOF
 }
 
@@ -898,13 +1009,34 @@ setup_zsh_files() {
   mkdir -p "${ZSH_DIR}/cache" "${ZSH_DIR}/config"
   touch "${ZSH_DIR}/.zsh_history"
   log "Wrote ZDOTDIR configuration under ${ZSH_DIR}"
-  if [ ! -f "${P10K_DIR}/p10k.zsh" ]; then
-    if [ -f "${SCRIPT_DIR}/../templates/p10k.zsh" ]; then
-      cp "${SCRIPT_DIR}/../templates/p10k.zsh" "${P10K_DIR}/p10k.zsh"
-    else
-      local p10k_url="${SANDBOX_P10K_TEMPLATE_URL:-$DEFAULT_P10K_URL}"
-      curl -fsSL "$p10k_url" -o "${P10K_DIR}/p10k.zsh" || log "Warning: unable to fetch p10k template from ${p10k_url}"
-    fi
+  write_p10k
+}
+
+# p10k config is always overwritten from the repo template -- it is generated by
+# `p10k configure` and checked in, so the template is the single source of truth.
+# Download failures leave any existing file untouched (curl writes to a temp
+# first) so a network blip cannot wipe a working prompt config.
+write_p10k() {
+  local target="${P10K_DIR}/p10k.zsh"
+  if [ -f "${SCRIPT_DIR}/../templates/p10k.zsh" ]; then
+    cp "${SCRIPT_DIR}/../templates/p10k.zsh" "$target"
+    chmod 0644 "$target"
+    log "Installed p10k config from local template (overwrote any existing)"
+    return
+  fi
+  local p10k_url="${SANDBOX_P10K_TEMPLATE_URL:-$DEFAULT_P10K_URL}"
+  local tmp
+  tmp="$(mktemp)" || {
+    warn "unable to create temp file for p10k config; keeping existing"
+    return 0
+  }
+  if curl -fsSL "$p10k_url" -o "$tmp" && [ -s "$tmp" ]; then
+    mv "$tmp" "$target"
+    chmod 0644 "$target"
+    log "Installed p10k config from ${p10k_url} (overwrote any existing)"
+  else
+    rm -f "$tmp"
+    warn "unable to fetch p10k template from ${p10k_url}; keeping existing config"
   fi
 }
 
@@ -990,11 +1122,10 @@ commands:
 USAGE
 }
 
+# No root check: the installer writes everything under $SANDBOX_HOME as the
+# invoking user and degrades the privileged steps (system packages,
+# /etc/profile.d hook) to warnings.
 run_update() {
-  if [ "$(id -u)" -ne 0 ]; then
-    echo "[sbox] update must run as root" >&2
-    exit 1
-  fi
   curl -fsSL "$INSTALLER_URL" | bash -s -- --sandbox-dir "$SANDBOX_HOME"
 }
 
@@ -1166,8 +1297,106 @@ EOF
   chmod 0644 "$ENV_SCRIPT"
 }
 
+COMMA_USER=""
+COMMA_HOME=""
+COMMA_SHELL=""
+
+# Under `curl ... | sudo bash` $HOME is /root and $SHELL is inherited, neither of
+# which describes the operator's real interactive shell. Resolve the invoking
+# user from SUDO_USER and read their login shell out of passwd instead.
+resolve_invoking_user() {
+  COMMA_USER="${SUDO_USER:-$(id -un)}"
+  local pw=""
+  if command -v getent >/dev/null 2>&1; then
+    pw="$(getent passwd "$COMMA_USER" 2>/dev/null || true)"
+  fi
+  if [ -n "$pw" ]; then
+    COMMA_HOME="$(printf '%s' "$pw" | cut -d: -f6)"
+    COMMA_SHELL="$(printf '%s' "$pw" | cut -d: -f7)"
+  fi
+  [ -n "$COMMA_HOME" ] || COMMA_HOME="${HOME:-}"
+  # passwd often records nologin/false for LDAP or service accounts; in that
+  # case whatever is actually running is the better signal.
+  case "${COMMA_SHELL##*/}" in
+    ''|nologin|false) COMMA_SHELL="${SHELL:-/bin/sh}" ;;
+  esac
+}
+
+# Echoes the rc file for COMMA_SHELL, or returns 1 for shells we do not know how
+# to edit safely.
+comma_rc_file() {
+  case "${COMMA_SHELL##*/}" in
+    zsh)
+      # Honour ZDOTDIR only when it is the user's own and lives outside the
+      # sandbox. Under sudo it belongs to the elevated environment, and when the
+      # installer is re-run from inside the sandbox shell ZDOTDIR is
+      # $BASE_DIR/zsh -- whose .zshrc write_zshrc overwrites on every run, so an
+      # alias placed there would be silently wiped by the next `sbox update`.
+      if [ -z "${SUDO_USER:-}" ] && [ -n "${ZDOTDIR:-}" ] &&
+         case "$ZDOTDIR" in "$BASE_DIR"|"$BASE_DIR"/*) false ;; *) true ;; esac; then
+        printf '%s\n' "${ZDOTDIR}/.zshrc"
+      else
+        printf '%s\n' "${COMMA_HOME}/.zshrc"
+      fi
+      ;;
+    bash) printf '%s\n' "${COMMA_HOME}/.bashrc" ;;
+    ksh)  printf '%s\n' "${COMMA_HOME}/.kshrc" ;;
+    fish) printf '%s\n' "${COMMA_HOME}/.config/fish/config.fish" ;;
+    sh|dash|ash) printf '%s\n' "${COMMA_HOME}/.profile" ;;
+    *) return 1 ;;
+  esac
+}
+
+# `,` -> drop into the sandbox shell. Additive and idempotent: never touched if
+# the user already defines a `,` alias, and never fatal.
+install_comma_alias() {
+  resolve_invoking_user
+  local rc alias_line
+  if ! rc="$(comma_rc_file)"; then
+    warn "unrecognized login shell '${COMMA_SHELL}' for ${COMMA_USER}; add manually: alias ,='${BIN_DIR}/sandbox-shell'"
+    return 0
+  fi
+
+  if [ "${COMMA_SHELL##*/}" = "fish" ]; then
+    alias_line="alias , '${BIN_DIR}/sandbox-shell'"
+  else
+    alias_line="alias ,='${BIN_DIR}/sandbox-shell'"
+  fi
+
+  # Matches `alias ,=...` (posix shells) and `alias , ...` (fish).
+  if [ -f "$rc" ] && grep -qE "^[[:space:]]*alias[[:space:]]+,([[:space:]]*=|[[:space:]])" "$rc"; then
+    log "',' alias already defined in ${rc}; leaving it alone"
+    return 0
+  fi
+
+  mkdir -p "$(dirname "$rc")" 2>/dev/null || true
+  if ! printf '\n# >>> sandbox shortcut >>>\n%s\n# <<< sandbox shortcut <<<\n' "$alias_line" >>"$rc" 2>/dev/null; then
+    warn "unable to write ${rc}; add manually: ${alias_line}"
+    return 0
+  fi
+  # If root created the file it would otherwise be root-owned and unwritable
+  # for the user it was created for.
+  if [ "$IS_ROOT" -eq 1 ] && [ "$COMMA_USER" != "root" ]; then
+    chown "${COMMA_USER}:" "$rc" 2>/dev/null || true
+  fi
+  log "Added ',' alias to ${rc} -> ${BIN_DIR}/sandbox-shell"
+}
+
+# /etc/profile.d is the only genuinely root-owned artifact, and it is purely
+# opt-in convenience (gated on SANDBOX_ENABLE anyway). Skip it without root
+# instead of aborting -- the `,` alias and bin/sandbox-shell cover the same need
+# from the user's own rc file.
 write_profile_snippet() {
-  cat <<EOF >"${PROFILE_SNIPPET}"
+  if [ "$HAVE_PRIV" -ne 1 ]; then
+    warn "skipping ${PROFILE_SNIPPET} (needs root); use the ',' alias or ${BIN_DIR}/sandbox-shell instead"
+    return 0
+  fi
+  local tmp
+  tmp="$(mktemp)" || {
+    warn "unable to create temp file for ${PROFILE_SNIPPET}; skipping"
+    return 0
+  }
+  cat <<EOF >"$tmp"
 # shellcheck shell=sh
 if [ -z "\${SANDBOX_ENABLE:-}" ]; then
   return 0 2>/dev/null || true
@@ -1176,11 +1405,22 @@ if [ -f "${BASE_DIR}/activate.sh" ]; then
   . "${BASE_DIR}/activate.sh"
 fi
 EOF
-  chmod 0644 "$PROFILE_SNIPPET"
+  if $SUDO install -m 0644 "$tmp" "$PROFILE_SNIPPET" 2>/dev/null; then
+    log "Wrote ${PROFILE_SNIPPET}"
+  else
+    warn "unable to write ${PROFILE_SNIPPET}; continuing without the system-wide hook"
+  fi
+  rm -f "$tmp"
 }
 
 main() {
-  # require_root
+  if [ "$IS_ROOT" -eq 1 ]; then
+    log "Running as root; sandbox dir: ${BASE_DIR}"
+  elif [ "$HAVE_PRIV" -eq 1 ]; then
+    log "Running unprivileged with passwordless sudo available; sandbox dir: ${BASE_DIR}"
+  else
+    log "Running unprivileged without sudo; system package installs and ${PROFILE_SNIPPET} will be skipped. Sandbox dir: ${BASE_DIR}"
+  fi
   if [ "$NO_SANDBOX" -eq 1 ]; then
     ensure_base_prereqs
     ensure_zsh || log 'zsh installation skipped (not available)'
@@ -1197,42 +1437,24 @@ main() {
   ensure_base_prereqs
   ensure_zsh || log 'zsh setup skipped'
   ensure_tmux || log 'tmux setup skipped'
-  install_crush
-  install_croc
-  install_procs
-  install_codex
-  install_gh
-  install_fzf
-  install_zoxide
-  install_fd
-  install_xh
-  install_ripgrep
-  install_tre
-  install_k9s
-  install_kubecolor
-  install_krew
-  install_sysz
-  install_jnv
-  install_eza
-  install_yazi
-  install_7zz
-  install_yq
-  install_helix
-  install_zellij
-  install_delta
-  install_bat
-  install_btop
-  install_gobang
-  install_duf
-  install_broot
-  setup_tmux_files
-  install_zinit
+  for step in \
+    install_crush install_croc install_procs install_codex install_gh \
+    install_fzf install_zoxide install_fd install_xh install_ripgrep \
+    install_tre install_k9s install_kubecolor install_krew install_sysz \
+    install_jnv install_eza install_yazi install_7zz install_yq \
+    install_helix install_zellij install_delta install_bat install_btop \
+    install_gobang install_duf install_broot; do
+    try_step "$step"
+  done
+  try_step setup_tmux_files
+  try_step install_zinit
   setup_zsh_files
   write_activation_script
   write_shell_wrapper
   write_sssh_wrapper
   write_sbox_wrapper
   write_profile_snippet
+  install_comma_alias
   log "Installation complete. Launch ${BASE_DIR}/bin/sbox help to see lifecycle commands."
 }
 

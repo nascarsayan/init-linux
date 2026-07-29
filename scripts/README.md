@@ -1,6 +1,15 @@
 # sandbox-install.sh usage
 
-`sandbox-install.sh` bootstraps a self-contained shell environment under `/root/sandbox` by default. You can run it directly from this repository or stream it via `curl | bash`. The sandbox stays opt‑in: it only activates for sessions where `SANDBOX_ENABLE=1` is present, so other users on the machine remain unaffected.
+`sandbox-install.sh` bootstraps a self-contained shell environment under `/root/sandbox` (root) or `~/sandbox` (non-root) by default. You can run it directly from this repository or stream it via `curl | bash`. The sandbox stays opt‑in: it only activates for sessions where `SANDBOX_ENABLE=1` is present, so other users on the machine remain unaffected.
+
+**Root is not required.** Everything under the sandbox directory is written as the invoking user. Only two things need elevation, and both degrade to a warning rather than aborting the run:
+
+| Step | Without root |
+| --- | --- |
+| System package installs (`zsh`, `tmux`, `fzf`, `zoxide`, `unzip`, `xz`, `git`) | Skipped unless passwordless `sudo -n` works; already-present binaries are used as-is |
+| `/etc/profile.d/sandbox.sh` hook | Skipped — use the `,` alias or `<sandbox-dir>/bin/sandbox-shell` instead |
+
+Individual tool downloads are also best-effort: one failed release fetch no longer aborts the install, so the shell config, wrappers, and `,` alias always get written.
 
 ## Quickstart
 
@@ -9,23 +18,50 @@
 > https://raw.githubusercontent.com/nascarsayan/init-linux/zinit/scripts/sandbox-install.sh
 
 ```bash
-# Run locally (sandboxed)
-sudo scripts/sandbox-install.sh
+# Run locally, no root needed (installs to ~/sandbox)
+scripts/sandbox-install.sh
 
-# Or curl | bash (requires root)
-curl -fsSL https://snas.short.gy/linux-init | sudo bash
+# Or curl | bash
+curl -fsSL https://snas.short.gy/linux-init | bash
 
 # Install to a custom sandbox directory
+curl -fsSL https://snas.short.gy/linux-init | bash -s -- --sandbox-dir "$HOME/dev"
+
+# As root, if you want the system-wide /etc/profile.d hook and package installs
 curl -fsSL https://snas.short.gy/linux-init | sudo bash -s -- --sandbox-dir /root/sayann/dev
 
 # Remove the sandbox later
-curl -fsSL https://snas.short.gy/linux-init | sudo bash -s -- --cleanup
+curl -fsSL https://snas.short.gy/linux-init | bash -s -- --cleanup
 
 # Enable verbose debug trace
-curl -fsSL https://snas.short.gy/linux-init | sudo bash -s -- --debug
+curl -fsSL https://snas.short.gy/linux-init | bash -s -- --debug
 
 # Package-manager only install (no sandbox assets)
 curl -fsSL https://snas.short.gy/linux-init | sudo bash -s -- --no-sandbox
+```
+
+### The `,` shortcut
+
+The installer adds `alias ,='<sandbox-dir>/bin/sandbox-shell'` to the **invoking** user's rc file — resolved from `SUDO_USER` and their passwd login shell, so `sudo bash` still targets your own `~/.bashrc` rather than root's. Supported: bash (`.bashrc`), zsh (`.zshrc`), ksh (`.kshrc`), fish (`.config/fish/config.fish`), sh/dash (`.profile`).
+
+It is skipped entirely if a `,` alias already exists, so your own definition is never clobbered. For zsh, `ZDOTDIR` is honoured only when it points outside the sandbox — the sandbox's own `.zshrc` is regenerated on every run, so an alias placed there would be wiped by the next `sbox update`.
+
+### When `dnf` can only see an unreachable internal mirror
+
+On hosts whose only configured repo is a down internal mirror:
+
+```
+Errors during downloading metadata for repository 'local-yum':
+  - Curl error (7): Couldn't connect to server ... Connection refused
+```
+
+`install_pkg` retries automatically against the public Rocky mirror using an ephemeral `--repofrompath`, with `--nogpgcheck` and `sslverify=0`. Nothing is written to `/etc/yum.repos.d`, so the host's repo config is untouched. This is a deliberate trade-off for bootstrapping a dev sandbox over a trusted network — do not copy the pattern into production provisioning. To do it by hand:
+
+```bash
+dnf --disablerepo='*' \
+  --repofrompath='pub-baseos,https://dl.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/' \
+  --repofrompath='pub-appstream,https://dl.rockylinux.org/pub/rocky/9/AppStream/x86_64/os/' \
+  --setopt=sslverify=0 --nogpgcheck -y install zsh tmux
 ```
 
 ## What the installer does (sandbox mode)
@@ -35,7 +71,7 @@ curl -fsSL https://snas.short.gy/linux-init | sudo bash -s -- --no-sandbox
 - Installs zinit under `/root/sandbox/zinit` without touching other users.
 - Copies `templates/zshrc-tpl.zsh` into `/root/sandbox/zsh/.zshrc`. If the file is missing locally, it falls back to the remote template or a minimal stub.
 - Clones `gpakosz/.tmux` and `nascarsayan/.tmux.local` under `/root/sandbox/tmux`, wiring tmux to use those configs only when the sandbox is active.
-- Drops your Powerlevel10k profile into `/root/sandbox/p10k/p10k.zsh`, so the wizard never appears.
+- Drops your Powerlevel10k profile into `/root/sandbox/p10k/p10k.zsh`, so the wizard never appears. This file is **always overwritten** from `templates/p10k.zsh` (or the published copy) — the template is the single source of truth. Regenerate it with `p10k configure` and copy the result back into `templates/p10k.zsh`. A failed download leaves the existing file untouched, so a network blip cannot wipe a working prompt.
 - Bootstraps `krew` inside `/root/sandbox/krew`, installs the `tree` and `stern` plugins, and keeps everything scoped to the sandbox.
 - Writes `/root/sandbox/activate.sh`, `/etc/profile.d/sandbox.sh`, and shell helpers (`sandbox-login`, `sssh`, `sbox`). Activation only happens when `SANDBOX_ENABLE=1` is present in the environment.
 
@@ -128,8 +164,10 @@ docker stop "$container"
 
 ## Notes
 
-- Sandbox mode requires root (it writes under `/root` and `/etc/profile.d`).
-- Re-running the sandbox installer is idempotent; binaries are overwritten in place and configs re-copied.
+- Sandbox mode does **not** require root. Run as root only if you want system package installs and the `/etc/profile.d` hook; without it those two steps warn and are skipped.
+- Re-running the sandbox installer is idempotent; binaries are overwritten in place and configs re-copied. The `,` alias and the sandbox alias block are marker-guarded, so repeat runs never duplicate them.
+- Hand edits to `<sandbox-dir>/zsh/.zshrc` and `<sandbox-dir>/p10k/p10k.zsh` are **overwritten** on every run — make changes in `templates/zshrc-tpl.zsh` / `templates/p10k.zsh` instead.
+- The published template is what `curl | bash` actually fetches; local edits to `templates/` only take effect for local runs until they are pushed to the `zinit` branch.
 - GitHub API calls may rate-limit; pinned release URLs are provided for the required tools.
 - The default shell is never changed; activation only happens for sessions that set `SANDBOX_ENABLE=1`.
-- Pass `--cleanup` to remove `/root/sandbox` and `/etc/profile.d/sandbox.sh` if you need to roll back.
+- Pass `--cleanup` to remove the sandbox dir and `/etc/profile.d/sandbox.sh` if you need to roll back. Removing the profile hook needs root; the `,` alias is left in your rc file for you to delete.

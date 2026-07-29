@@ -22,11 +22,20 @@ else
   export KREW_HOME="${KREW_ROOT}"
 fi
 
+# eda_off/eda_on + interactive LD_LIBRARY_PATH strip moved to .zshenv
+# (must run before /etc/zshrc spawns subprocesses).
+
 instant_prompt="${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
 [[ -r "${instant_prompt}" ]] && source "${instant_prompt}"
 unset instant_prompt
 
 source "${ZINIT_HOME}/zinit.zsh"
+
+# No-tty sandboxes lack job control (monitor/zle), so zinit's wait"0" turbo
+# scheduling below can fire before the synchronous `compinit` call further
+# down defines the real compdef. Stub it so early calls no-op instead of
+# erroring; compinit overwrites this with the working function.
+(( $+functions[compdef] )) || compdef() { :; }
 
 autoload -Uz is-at-least
 if is-at-least 5.1 "$ZSH_VERSION"; then
@@ -37,21 +46,23 @@ else
   print -P "%F{yellow}[sandbox]%f Skipping powerlevel10k (needs zsh>=5.1, current $ZSH_VERSION)."
 fi
 
-zinit snippet OMZ::plugins/git/git.plugin.zsh
-zinit snippet OMZ::plugins/sudo/sudo.plugin.zsh
-zinit snippet OMZ::plugins/colored-man-pages/colored-man-pages.plugin.zsh
-zinit snippet OMZ::plugins/kubectl/kubectl.plugin.zsh
-zinit snippet OMZ::plugins/docker/docker.plugin.zsh
-zinit snippet OMZ::plugins/docker-compose/docker-compose.plugin.zsh
-zinit snippet OMZ::plugins/helm/helm.plugin.zsh
-zinit snippet OMZ::plugins/vscode/vscode.plugin.zsh
-zinit snippet OMZ::plugins/git-extras/git-extras.plugin.zsh
+zinit ice wait"0" lucid; zinit snippet OMZ::plugins/git/git.plugin.zsh
+zinit ice wait"0" lucid; zinit snippet OMZ::plugins/sudo/sudo.plugin.zsh
+zinit ice wait"0" lucid; zinit snippet OMZ::plugins/colored-man-pages/colored-man-pages.plugin.zsh
+zinit ice wait"0" lucid; zinit snippet OMZ::plugins/kubectl/kubectl.plugin.zsh
+zinit ice wait"0" lucid; zinit snippet OMZ::plugins/docker/docker.plugin.zsh
+zinit ice wait"0" lucid; zinit snippet OMZ::plugins/docker-compose/docker-compose.plugin.zsh
+zinit ice wait"0" lucid; zinit snippet OMZ::plugins/helm/helm.plugin.zsh
+zinit ice wait"0" lucid; zinit snippet OMZ::plugins/vscode/vscode.plugin.zsh
+zinit ice wait"0" lucid; zinit snippet OMZ::plugins/git-extras/git-extras.plugin.zsh
 
-zinit load zsh-users/zsh-autosuggestions
+zinit ice wait"0" lucid; zinit load zsh-users/zsh-autosuggestions
+zinit ice wait"0" lucid blockf; zinit load zsh-users/zsh-completions
+# syntax-highlighting must load sync (needs $region_highlight from ZLE);
+# turbo runs it before ZLE init -> "region_highlight not defined".
 zinit load zsh-users/zsh-syntax-highlighting
-zinit load zsh-users/zsh-completions
 
-zinit snippet https://raw.githubusercontent.com/ahmetb/kubectl-alias/master/.kubectl_aliases
+zinit ice wait"0" lucid; zinit snippet https://raw.githubusercontent.com/ahmetb/kubectl-alias/master/.kubectl_aliases
 
 alias git_current_branch="git rev-parse --abbrev-ref HEAD"
 alias ggpush='git push origin $(git_current_branch)'
@@ -64,10 +75,8 @@ mkcd() {
 }
 
 alias mkcd=mkcd
-alias ls='eza -lh --group-directories-first --icons=auto'
 if (( __SANDBOX_HAS_BASE )); then
   : "${TMUX_SOCKET_NAME:=sayann}"
-  alias tmux='TMUX_CONF=${SANDBOX_HOME}/tmux/.tmux.conf TMUX_CONF_LOCAL=${SANDBOX_HOME}/tmux/.tmux.conf.local tmux -L ${TMUX_SOCKET_NAME} -f ${SANDBOX_HOME}/tmux/.tmux.conf'
 fi
 
 if command -v pass >/dev/null 2>&1; then
@@ -94,19 +103,20 @@ setopt HIST_IGNORE_DUPS
 setopt HIST_FIND_NO_DUPS
 setopt HIST_REDUCE_BLANKS
 
-for file in "$HOME/.local/share/omarchy/default/bash/envs" \
-            "$HOME/.local/share/omarchy/default/bash/aliases" \
-            "$HOME/.local/share/omarchy/default/bash/functions"; do
-  [ -f "$file" ] && source "$file"
-done
-
-if command -v mise >/dev/null 2>&1; then
-  eval "$(mise activate zsh)"
-fi
-
-if command -v zoxide >/dev/null 2>&1; then
-  eval "$(zoxide init zsh)"
-fi
+# Defer subprocess-spawning prompt integrations to first precmd. Cold NFS
+# fork+exec is the slowest part of shell startup; running these after the
+# prompt is drawn means the user sees their shell immediately.
+__defer_init_done=0
+__defer_init() {
+  (( __defer_init_done )) && return
+  __defer_init_done=1
+  command -v mise   >/dev/null 2>&1 && eval "$(mise activate zsh)"
+  command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init zsh)"
+  command -v atuin  >/dev/null 2>&1 && eval "$(atuin init zsh --disable-up-arrow)"
+  add-zsh-hook -d precmd __defer_init
+}
+autoload -Uz add-zsh-hook
+add-zsh-hook precmd __defer_init
 
 if command -v fzf >/dev/null 2>&1; then
   if [[ -n "${FZF_HOME:-}" && -f "${FZF_HOME}/completion.zsh" ]]; then
@@ -125,13 +135,55 @@ if [[ -d "${KREW_ROOT:-}/bin" ]]; then
   PATH="${KREW_ROOT}/bin:${PATH}"
 fi
 
-BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
-PATH="${BUN_INSTALL}/bin:${PATH}"
-GITTOP="${GITTOP:-${HOME}/Code/monolith}"
-PYTHONPATH="${PYTHONPATH:-${HOME}/Code/monolith/src/cluster_deployment/deployment/}"
-export BUN_INSTALL PATH GITTOP PYTHONPATH
+# ghq + gwq: unified repo/worktree tree under ~/ws/ghq. gwq shim (cd.launch_shell=false
+# in ~/.config/gwq/config.toml) lets `gwq cd`/`gwq add` cd this shell instead of spawning one.
+if command -v gwq >/dev/null 2>&1; then
+  source <(gwq completion zsh)
+fi
 
-[ -f "$HOME/.local/bin/env" ] && . "$HOME/.local/bin/env"
+if command -v ghq >/dev/null 2>&1 && command -v fzf >/dev/null 2>&1; then
+  # fzf shows "<repo> <branch>" (padded, aligned); full path travels as a hidden
+  # 2nd tab-delimited field for the preview and for cd, so long ~/ws/ghq/... paths
+  # never clutter the picker.
+  ghq-path() {
+    local -A branch_of
+    local p b
+    while IFS=$'\t' read -r p b; do
+      branch_of[$p]=$b
+    done < <(gwq list --json -g 2>/dev/null | jq -r '.[] | [.path, .branch] | @tsv')
+
+    local base label br
+    for p in ${(f)"$(ghq list --full-path 2>/dev/null)"}; do
+      br=${branch_of[$p]:-$(git -C "$p" symbolic-ref --short HEAD 2>/dev/null)}
+      base=${p:t}
+      label=${base%%=*}
+      printf '%s %s\t%s\n' "$label" "${br:-detached}" "$p"
+    done | fzf --delimiter '\t' --with-nth 1 \
+               --preview 'git -C {2} log -1 --stat --color=always 2>/dev/null' \
+               --preview-window 'right:60%' \
+      | cut -f2
+  }
+
+  # fuzzy-jump to any repo or worktree
+  dev() {
+    local moveto
+    moveto="$(ghq-path)" || return 1
+    [[ -z "$moveto" ]] && return 1
+    builtin cd "$moveto" || return 1
+  }
+fi
+
+BUN_INSTALL="${BUN_INSTALL:-${SANDBOX_HOME:-$HOME}/.bun}"
+GITTOP="${GITTOP:-${HOME}/ws/cluster}"
+MONOLITH_HOME="${MONOLITH_HOME:-${HOME}/ws/monolith}"
+# PYTHONPATH="${PYTHONPATH:-${MONOLITH_HOME}/src/infra}"
+export BUN_INSTALL MONOLITH_HOME
+
+# NOTE: do NOT export TAG or GITTOP here. cluster/flow/version.mk defines
+# TAG itself (ifndef TAG: TAG := $(USER)-$(GITHASH)) but only when GITTOP
+# resolves naturally (via `git rev-parse --show-toplevel` from inside
+# whichever Makefile is running) to the cluster repo -- forcing either var
+# breaks that self-resolution. Confirmed working with both unset.
 
 if command -v kubectl >/dev/null 2>&1 && command -v krew >/dev/null 2>&1; then
   export KREW_ROOT="${KREW_ROOT:-${HOME}/.krew}"
@@ -145,15 +197,21 @@ zstyle ':completion:*' menu select
 zstyle ':completion:*:descriptions' format '%d'
 # zstyle ':fzf-tab:*' switch-group ',' '.'
 
+: "${ZSH_COMPDUMP:=${XDG_CACHE_HOME:-$HOME/.cache}/zsh/.zcompdump-${HOST}-${ZSH_VERSION}}"
+[[ -d ${ZSH_COMPDUMP:h} ]] || mkdir -p ${ZSH_COMPDUMP:h}
 autoload -Uz compinit
-compinit
+compinit -C -d "$ZSH_COMPDUMP"
 
 autoload -U +X bashcompinit && bashcompinit
 
-if command -v kubecolor >/dev/null 2>&1; then
-  alias kubectl="kubecolor"
-  compdef _kubectl kubecolor
-fi
+# Disabled: aliasing kubectl to kubecolor breaks `kubectl exec -it`/`logs -f`/
+# `attach`/`port-forward` — kubecolor buffers stdout to colorize it, which is
+# incompatible with raw bidirectional pty streaming. Hangs with zero output,
+# confirmed on kubecolor v0.6.0 (latest) too, not a version-specific bug.
+# if command -v kubecolor >/dev/null 2>&1; then
+#   alias kubectl="kubecolor"
+#   compdef _kubectl kubecolor
+# fi
 
 if [[ -n "${P10K_CONFIG:-}" && -f "${P10K_CONFIG}" ]]; then
   source "${P10K_CONFIG}"
@@ -165,7 +223,5 @@ fi
 unset P10K_DEFAULT
 
 WORDCHARS=''
-
-[[ -f "$HOME/.fzf.zsh" ]] && source "$HOME/.fzf.zsh"
 
 bindkey -e
