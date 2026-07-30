@@ -88,6 +88,65 @@ Notes on the behaviour:
 - The resolved base is written to `<worktree-gitdir>/sbx-review-base` — inside the gitdir, not the working tree, so it can never appear in the diff you are reviewing.
 - `SBX_REVIEW_REMOTE` overrides the remote (default `origin`).
 
+### The `,rv` PR review shortcut
+
+```bash
+,rv                 # PR for the current branch
+,rv <branch>        # PR for a named branch
+,rv <number>        # that PR number directly
+,rv -c <number>     # check the PR out via the extension
+,rv -a              # also add this worktree as a folder in the current window
+```
+
+Opens the branch's pull request directly on its **Files Changed** view in VS Code, with inline comment gutters that post to GitHub. Pair it with `,gwq`:
+
+```bash
+,gwq sayann/my-feature   # worktree + cd, for building and navigating the code
+,rv                      # review the PR for that branch
+```
+
+This works because the GitHub Pull Requests extension registers a URI handler. That is not discoverable from its `package.json` — there is no `onUri` activation event, since it activates on `onStartupFinished` — but `window.registerUriHandler` is in the bundle and accepts four paths, of which two are useful here:
+
+| Path | Effect |
+| --- | --- |
+| `/open-pull-request-changes` | Open the PR's Files Changed view |
+| `/checkout-pull-request` | Check the PR out |
+
+The query may be JSON, or simply `?uri=<github pr url>`, which is what `,rv` uses:
+
+```bash
+code --open-url "vscode://GitHub.vscode-pull-request-github/open-pull-request-changes?uri=https://github.com/OWNER/REPO/pull/N"
+```
+
+The handler's regex requires exactly `https://github.com/<owner>/<repo>/pull/<number>`. Verified against extension version 0.163.
+
+**Must be run from VS Code's integrated terminal** (Remote-SSH is fine) — that is what puts `code` on `PATH` with a live `VSCODE_IPC_HOOK_CLI`. A plain ssh or detached tmux shell has no window to talk to, and `,rv` fails with a clear message rather than hanging.
+
+Both helpers bootstrap their own environment: the integrated terminal is a plain login shell where the sandbox `bin` is not on `PATH` and `gh`'s credentials are invisible (they live in `<sandbox-dir>/.config/gh`, not `~/.config/gh`), so each script prepends the sandbox `bin` and sets `GH_CONFIG_DIR` itself.
+
+### Reaping merged worktrees: `,gcw`
+
+```bash
+,gcw            # remove worktrees whose PR is merged
+,gcw --dry-run  # report only, change nothing
+```
+
+Also runs automatically, detached, whenever `,gwq` creates a **new** worktree. Its log is `<sandbox-dir>/cache/gwq-gc.log`.
+
+Merged detection, in order:
+
+1. **GitHub PR state is `MERGED`.** Authoritative, and the only signal that works with squash merges — a squash-merged branch is not an ancestor of the base, so a git-only check reports it as unmerged and would never reap anything. On `Cerebras/cluster` this is every PR.
+2. Otherwise the branch tip is an ancestor of the base ref. Works offline.
+
+Because it runs unattended it is deliberately conservative and skips: anything with uncommitted **or untracked** content, the base branch, the main worktree, whatever the main checkout has checked out, detached worktrees, any path outside gwq's `worktree.basedir`, and the worktree `,gwq` just created (passed as `--skip`).
+
+Branch deletion uses `git branch -d`, falling back to `-D` only when a merged PR positively confirms the work already landed — which is required, since git considers a squash-merged branch unmerged.
+
+Two traps worth knowing about, both of which silently broke earlier versions:
+
+- **Path canonicalisation.** `git worktree list` reports resolved physical paths while gwq reports symlinked ones (on an NFS home `/cb/home/<user>/ws` is a symlink). Comparing them raw made the basedir guard match nothing, and made `--skip` fail to protect the worktree you just entered. Every path comparison is canonicalised with `readlink -f`.
+- **The async spawn's redirections.** `,gwq` reads the helper's stdout via command substitution, which blocks until every holder of that pipe closes it. A background child inheriting stdout hangs the `cd` until gc finishes, so the child gets `>>log 2>&1 </dev/null` and `setsid`.
+
 ### When `dnf` can only see an unreachable internal mirror
 
 On hosts whose only configured repo is a down internal mirror:

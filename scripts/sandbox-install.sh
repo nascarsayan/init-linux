@@ -1056,6 +1056,19 @@ set -euo pipefail
 log() { printf '[gwq-review] %s\n' "$*" >&2; }
 die() { printf '[gwq-review] ERROR: %s\n' "$*" >&2; exit 1; }
 
+# Invoked from whatever shell the user is in -- typically VS Code's integrated
+# terminal, a plain login bash where the sandbox bin dir is NOT on PATH and gh's
+# credentials are invisible (they live under the sandbox config dir, not
+# ~/.config/gh). So bootstrap both instead of assuming an activated sandbox.
+SANDBOX_HOME="${SANDBOX_HOME:-__BASE__}"
+case ":${PATH}:" in
+  *":${SANDBOX_HOME}/bin:"*) ;;
+  *) PATH="${SANDBOX_HOME}/bin:${PATH}"; export PATH ;;
+esac
+if [ -z "${GH_CONFIG_DIR:-}" ] && [ -d "${SANDBOX_HOME}/.config/gh" ]; then
+  export GH_CONFIG_DIR="${SANDBOX_HOME}/.config/gh"
+fi
+
 usage() {
   cat >&2 <<'USAGE'
 usage: sbx-gwq-review <branch> [base-branch]
@@ -1200,7 +1213,27 @@ else
   gwq add "$branch" >&2 || die "gwq add failed for '${branch}'"
   wt="$(wt_for_branch)"
   [ -n "$wt" ] && [ -d "$wt" ] || die "worktree path not resolvable after gwq add"
+  created=1
 fi
+
+# Reap merged worktrees in the background after a new one is created.
+#
+# Both redirections matter. The ,gwq shim reads our stdout via command
+# substitution, which blocks until *every* holder of that pipe closes it -- an
+# inherited stdout in the child would hang the cd until gc finished. And stdin
+# must be detached so a backgrounded child never competes for the terminal.
+spawn_gc() {
+  local gc="${SANDBOX_HOME}/bin/sbx-gwq-gc" log_dir="${SANDBOX_HOME}/cache"
+  [ -x "$gc" ] || return 0
+  mkdir -p "$log_dir" 2>/dev/null || return 0
+  if command -v setsid >/dev/null 2>&1; then
+    setsid "$gc" --skip "$wt" >>"${log_dir}/gwq-gc.log" 2>&1 </dev/null &
+  else
+    nohup "$gc" --skip "$wt" >>"${log_dir}/gwq-gc.log" 2>&1 </dev/null &
+  fi
+  log "reaping merged worktrees in the background (${log_dir}/gwq-gc.log)"
+}
+[ "${created:-0}" -eq 1 ] && spawn_gc
 
 # Stash the base inside the worktree's gitdir -- not the working tree, so it can
 # never show up in the diff being reviewed. Editor tooling reads it from here.
@@ -1217,8 +1250,276 @@ fi
 
 printf '%s\n' "$wt"
 EOF
+  sed -i "s#__BASE__#${BASE_DIR//\\/\\\\}#" "$target"
   chmod +x "$target"
   log "Created gwq review helper at ${target}"
+}
+
+# Reaps worktrees whose PR has been merged. Runs both on demand and, detached,
+# after every new worktree creation.
+write_gwq_gc_script() {
+  local target="${BIN_DIR}/sbx-gwq-gc"
+  cat <<'EOF' >"$target"
+#!/usr/bin/env bash
+# Delete gwq worktrees (and their local branches) whose work has already landed.
+#
+# Merged-detection, in order:
+#   1. GitHub PR state == MERGED. Authoritative, and the only signal that works
+#      with squash merges -- a squash-merged branch is NOT an ancestor of the base,
+#      so git alone reports it as unmerged and would never reap anything.
+#   2. Otherwise: the branch tip is an ancestor of the base ref. Works offline.
+#
+# Deliberately conservative, because this runs unattended: anything with
+# uncommitted or untracked content is skipped, as is the base branch, the main
+# worktree, whatever the main checkout has checked out, detached worktrees, and
+# any path outside gwq's basedir.
+set -euo pipefail
+
+SANDBOX_HOME="${SANDBOX_HOME:-__BASE__}"
+case ":${PATH}:" in
+  *":${SANDBOX_HOME}/bin:"*) ;;
+  *) PATH="${SANDBOX_HOME}/bin:${PATH}"; export PATH ;;
+esac
+if [ -z "${GH_CONFIG_DIR:-}" ] && [ -d "${SANDBOX_HOME}/.config/gh" ]; then
+  export GH_CONFIG_DIR="${SANDBOX_HOME}/.config/gh"
+fi
+
+DRY=0
+SKIP_PATH=""
+usage() {
+  cat >&2 <<'USAGE'
+usage: sbx-gwq-gc [-n] [--skip <path>]
+
+Removes gwq worktrees whose pull request is merged, plus their local branches.
+
+  -n, --dry-run   report what would be removed, change nothing
+      --skip      never touch this worktree path (used by sbx-gwq-review to
+                  protect the worktree it just created and cd'd into)
+USAGE
+}
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -n|--dry-run) DRY=1; shift ;;
+    --skip) SKIP_PATH="${2:-}"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage; exit 2 ;;
+  esac
+done
+
+ts() { date '+%Y-%m-%dT%H:%M:%S%z' 2>/dev/null || echo "-"; }
+log() { printf '[gwq-gc %s] %s\n' "$(ts)" "$*"; }
+
+git rev-parse --git-dir >/dev/null 2>&1 || { log "not in a git repository; nothing to do"; exit 0; }
+command -v gwq >/dev/null 2>&1 || { log "gwq not found; nothing to do"; exit 0; }
+
+remote="${SBX_REVIEW_REMOTE:-origin}"
+
+# Every path comparison below must be canonicalised. `git worktree list` reports
+# resolved physical paths while gwq reports symlinked ones -- on an NFS home,
+# /cb/home/<user>/ws is a symlink to /net/<server>/.../ws. Comparing them raw
+# makes the basedir guard match nothing (so gc silently reaps nothing) and, far
+# worse, makes --skip fail to protect the worktree the caller just cd'd into.
+canon() { readlink -f -- "$1" 2>/dev/null || printf '%s' "$1"; }
+
+# Only ever touch worktrees gwq itself created.
+basedir="$(gwq config get worktree.basedir 2>/dev/null | tr -d '\r' || true)"
+case "$basedir" in
+  /*) ;;
+  *) log "cannot determine gwq worktree.basedir; refusing to remove anything"; exit 0 ;;
+esac
+basedir="$(canon "$basedir")"
+[ -n "$SKIP_PATH" ] && SKIP_PATH="$(canon "$SKIP_PATH")"
+
+base=""
+if h="$(git symbolic-ref --short "refs/remotes/${remote}/HEAD" 2>/dev/null)"; then
+  base="${h#"${remote}"/}"
+else
+  for c in main master; do
+    git show-ref --verify --quiet "refs/remotes/${remote}/${c}" && { base="$c"; break; }
+  done
+fi
+[ -n "$base" ] || { log "cannot determine base branch; refusing to remove anything"; exit 0; }
+
+main_wt="$(canon "$(git worktree list --porcelain | awk '/^worktree /{print substr($0,10); exit}')")"
+main_branch="$(git -C "$main_wt" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+
+# path<TAB>branch, skipping detached entries (no branch to reason about).
+entries="$(git worktree list --porcelain | awk '
+  /^worktree /{ p = substr($0, 10); b = "" }
+  /^branch /  { b = substr($0, 8); sub(/^refs\/heads\//, "", b); print p "\t" b }
+')"
+
+removed=0; kept=0
+while IFS=$'\t' read -r wt br; do
+  [ -n "$wt" ] && [ -n "$br" ] || continue
+  wt="$(canon "$wt")"
+  [ "$wt" = "$main_wt" ] && continue
+  case "$wt" in "$basedir"/*) ;; *) continue ;; esac
+  [ -n "$SKIP_PATH" ] && [ "$wt" = "$SKIP_PATH" ] && { log "skip ${br}: just created"; kept=$((kept+1)); continue; }
+  [ "$br" = "$base" ] && continue
+  [ -n "$main_branch" ] && [ "$br" = "$main_branch" ] && continue
+
+  if [ -n "$(git -C "$wt" status --porcelain 2>/dev/null)" ]; then
+    log "skip ${br}: uncommitted or untracked changes"
+    kept=$((kept+1)); continue
+  fi
+
+  merged=""; pr_merged=0
+  if git merge-base --is-ancestor "refs/heads/${br}" "refs/remotes/${remote}/${base}" 2>/dev/null; then
+    merged="ancestor of ${remote}/${base}"
+  elif command -v gh >/dev/null 2>&1; then
+    state="$(gh pr list --head "$br" --state all --json state \
+               --jq 'map(select(.state=="MERGED")) | .[0].state // empty' 2>/dev/null || true)"
+    if [ "$state" = "MERGED" ]; then
+      merged="PR merged (squash)"
+      pr_merged=1
+    fi
+  fi
+  [ -n "$merged" ] || { kept=$((kept+1)); continue; }
+
+  if [ "$DRY" -eq 1 ]; then
+    log "would remove ${br} (${merged}) -> ${wt}"
+    removed=$((removed+1)); continue
+  fi
+
+  if git worktree remove "$wt" 2>/dev/null; then
+    # A squash-merged branch looks unmerged to git, so -d refuses it. -D is only
+    # justified by positive evidence the work is already on the base.
+    if git branch -d "$br" >/dev/null 2>&1; then
+      :
+    elif [ "$pr_merged" -eq 1 ] && git branch -D "$br" >/dev/null 2>&1; then
+      :
+    else
+      log "removed worktree for ${br} but kept the local branch"
+    fi
+    log "removed ${br} (${merged})"
+    removed=$((removed+1))
+  else
+    log "could not remove worktree ${wt}; leaving ${br} alone"
+    kept=$((kept+1))
+  fi
+done <<EOT
+${entries}
+EOT
+
+git worktree prune >/dev/null 2>&1 || true
+gwq prune >/dev/null 2>&1 || true
+if [ "$DRY" -eq 1 ]; then
+  log "done (dry run): ${removed} would be removed, ${kept} kept"
+else
+  log "done: ${removed} removed, ${kept} kept"
+fi
+EOF
+  sed -i "s#__BASE__#${BASE_DIR//\\/\\\\}#" "$target"
+  chmod +x "$target"
+  log "Created gwq gc helper at ${target}"
+}
+
+# Opens the GitHub Pull Requests extension straight onto a PR's Files Changed
+# view. The extension registers a URI handler (window.registerUriHandler, active
+# from onStartupFinished -- there is no onUri activation event, which is why the
+# package.json gives no hint that this works). It accepts either a JSON query or,
+# far more conveniently, ?uri=<github pr url>. Verified against extension 0.163.
+write_review_open_script() {
+  local target="${BIN_DIR}/sbx-review-open"
+  cat <<'EOF' >"$target"
+#!/usr/bin/env bash
+# Open a branch's pull request in VS Code for review.
+#
+# Requires being run from VS Code's integrated terminal (Remote-SSH is fine):
+# that is what puts `code` on PATH with a live VSCODE_IPC_HOOK_CLI. From a plain
+# ssh or detached tmux shell there is no window to talk to.
+set -euo pipefail
+
+EXT_ID='GitHub.vscode-pull-request-github'
+
+log() { printf '[review-open] %s\n' "$*" >&2; }
+die() { printf '[review-open] ERROR: %s\n' "$*" >&2; exit 1; }
+
+# See sbx-gwq-review: the integrated terminal is a plain login shell, so gh is
+# neither on PATH nor pointed at the sandbox credentials unless we do it here.
+SANDBOX_HOME="${SANDBOX_HOME:-__BASE__}"
+case ":${PATH}:" in
+  *":${SANDBOX_HOME}/bin:"*) ;;
+  *) PATH="${SANDBOX_HOME}/bin:${PATH}"; export PATH ;;
+esac
+if [ -z "${GH_CONFIG_DIR:-}" ] && [ -d "${SANDBOX_HOME}/.config/gh" ]; then
+  export GH_CONFIG_DIR="${SANDBOX_HOME}/.config/gh"
+fi
+
+usage() {
+  cat >&2 <<'USAGE'
+usage: sbx-review-open [-c] [-a] [branch-or-pr-number]
+
+Resolves the pull request for a branch and opens it in VS Code.
+
+  (no arg)  use the current branch
+  <number>  use that PR number directly
+  -c        check the PR out via the extension instead of only viewing changes
+  -a        also add this worktree as a folder in the current VS Code window
+USAGE
+}
+
+checkout=0
+add_folder=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -c|--checkout) checkout=1; shift ;;
+    -a|--add-folder) add_folder=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    --) shift; break ;;
+    -*) die "unknown option: $1" ;;
+    *) break ;;
+  esac
+done
+
+command -v code >/dev/null 2>&1 \
+  || die "'code' not on PATH -- run this from VS Code's integrated terminal"
+command -v gh >/dev/null 2>&1 || die "gh not found on PATH"
+git rev-parse --git-dir >/dev/null 2>&1 || die "not inside a git repository"
+
+remote="${SBX_REVIEW_REMOTE:-origin}"
+url="$(git remote get-url "$remote" 2>/dev/null)" || die "no '$remote' remote"
+# Normalise https://, git@host:, and ssh://git@host/ forms down to owner/repo.
+slug="$(printf '%s' "$url" \
+  | sed -E 's#^(https?://[^/]+/|ssh://[^/]+/|[^@]+@[^:]+:)##; s#/+$##; s#\.git$##')"
+case "$slug" in
+  */*) ;;
+  *) die "cannot derive owner/repo from ${remote} url: ${url}" ;;
+esac
+owner="${slug%%/*}"
+repo="${slug#*/}"
+
+arg="${1:-}"
+if printf '%s' "$arg" | grep -qE '^[0-9]+$'; then
+  pr="$arg"
+else
+  branch="${arg:-$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)}"
+  [ -n "$branch" ] || die "detached HEAD and no branch/PR given"
+  log "looking up PR for branch ${branch}"
+  pr="$(gh pr list --head "$branch" --state all --json number \
+          --jq 'sort_by(-.number) | .[0].number' 2>/dev/null || true)"
+  [ -n "$pr" ] && [ "$pr" != "null" ] \
+    || die "no pull request found for branch '${branch}' in ${owner}/${repo}"
+fi
+
+if [ "$add_folder" -eq 1 ]; then
+  top="$(git rev-parse --show-toplevel)"
+  log "adding ${top} to the current window"
+  code --add "$top" || log "warning: could not add folder"
+fi
+
+path=/open-pull-request-changes
+[ "$checkout" -eq 1 ] && path=/checkout-pull-request
+
+# The handler regex requires exactly https://github.com/<owner>/<repo>/pull/<n>.
+pr_url="https://github.com/${owner}/${repo}/pull/${pr}"
+log "opening ${pr_url}"
+code --open-url "vscode://${EXT_ID}${path}?uri=${pr_url}"
+EOF
+  sed -i "s#__BASE__#${BASE_DIR//\\/\\\\}#" "$target"
+  chmod +x "$target"
+  log "Created review-open helper at ${target}"
 }
 
 write_shell_wrapper() {
@@ -1574,7 +1875,13 @@ alias_block_body() {
 # Anchors on the shortcut name followed by '=' (posix alias), whitespace (fish
 # alias), or '()' (shell function), so ',' never matches a ',,' definition or
 # vice versa and a function-form shim like ',gwq()' is still detected.
-alias_line_re() { printf '^(alias[ \t]+%s([ \t]*=|[ \t])|%s[ \t]*\\(\\))' "$1" "$1"; }
+#
+# The parens are [(][)] rather than \(\) because this is consumed as a *dynamic*
+# awk regex, where awk collapses the escape \( into a bare (. That turned the
+# branch into ',[ \t]*()' -- an empty group, matching every line starting with a
+# comma. ',' then matched ',gwq() {', mistook its own block for a user-authored
+# alias, and deleted itself. Bracket expressions cannot be misread this way.
+alias_line_re() { printf '^(alias[ \t]+%s([ \t]*=|[ \t])|%s[ \t]*[(][)])' "$1" "$1"; }
 
 find_alias_line() {
   local rc="$1" name="$2"
@@ -1655,7 +1962,7 @@ upsert_alias() {
 # alias the user wrote themselves is never touched. Nothing here is fatal.
 install_comma_alias() {
   resolve_invoking_user
-  local rc comma_line dcomma_line gwq_line tmux_env tmux_cmd
+  local rc comma_line dcomma_line gwq_line rv_line gc_line tmux_env tmux_cmd
   if ! rc="$(comma_rc_file)"; then
     warn "unrecognized login shell '${COMMA_SHELL}' for ${COMMA_USER}; add manually: alias ,='${BIN_DIR}/sandbox-shell'"
     return 0
@@ -1695,9 +2002,21 @@ end"
 }"
   fi
 
+  # ,rv needs no cd, so a plain alias suffices -- arguments append after the
+  # expansion, which is exactly what we want.
+  if [ "${COMMA_SHELL##*/}" = "fish" ]; then
+    rv_line="alias ,rv '${BIN_DIR}/sbx-review-open'"
+    gc_line="alias ,gcw '${BIN_DIR}/sbx-gwq-gc'"
+  else
+    rv_line="alias ,rv='${BIN_DIR}/sbx-review-open'"
+    gc_line="alias ,gcw='${BIN_DIR}/sbx-gwq-gc'"
+  fi
+
   upsert_alias "$rc" ","     "$comma_line"
   upsert_alias "$rc" ",,"    "$dcomma_line"
   upsert_alias "$rc" ",gwq"  "$gwq_line"
+  upsert_alias "$rc" ",rv"   "$rv_line"
+  upsert_alias "$rc" ",gcw"  "$gc_line"
 }
 
 # --cleanup counterpart. Removes only aliases that both look installer-generated
@@ -1708,7 +2027,7 @@ remove_comma_aliases() {
   local rc name existing
   rc="$(comma_rc_file)" || return 0
   [ -f "$rc" ] || return 0
-  for name in ',' ',,' ',gwq'; do
+  for name in ',' ',,' ',gwq' ',rv' ',gcw'; do
     # A marker block is ours by construction, so match on its body rather than on
     # the definition line -- a function-form shim's first line is just ',gwq()'
     # and carries no path to test against BASE_DIR.
@@ -1815,6 +2134,8 @@ main() {
   write_sssh_wrapper
   write_sbox_wrapper
   write_gwq_review_script
+  write_review_open_script
+  write_gwq_gc_script
   write_profile_snippet
   install_comma_alias
   log "Installation complete. Launch ${BASE_DIR}/bin/sbox help to see lifecycle commands."
