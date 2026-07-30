@@ -158,6 +158,7 @@ GH_API_WARNED=0
 cleanup_environment() {
   log "Removing ${BASE_DIR}"
   rm -rf "$BASE_DIR"
+  remove_comma_aliases
   if [ -f "$PROFILE_SNIPPET" ]; then
     if [ "$HAVE_PRIV" -eq 1 ]; then
       log "Removing ${PROFILE_SNIPPET}"
@@ -1347,20 +1348,99 @@ comma_rc_file() {
   esac
 }
 
-# Appends one alias to $1 (rc file) unless a same-named alias already exists.
-# $2 is the alias name, $3 the definition line. Never fatal.
-append_alias_if_absent() {
-  local rc="$1" name="$2" line="$3"
-  # Anchor on the name followed by '=' (posix) or whitespace (fish) so that ','
-  # does not match an existing ',,' definition or vice versa.
-  local pat="^[[:space:]]*alias[[:space:]]+${name}([[:space:]]*=|[[:space:]])"
-  if [ -f "$rc" ] && grep -qE "$pat" "$rc"; then
-    log "'${name}' alias already defined in ${rc}; leaving it alone"
-    return 0
+alias_block_begin() { printf '# >>> sandbox shortcut (%s) >>>' "$1"; }
+alias_block_end()   { printf '# <<< sandbox shortcut (%s) <<<' "$1"; }
+
+# awk-based rather than sed-based on purpose: the markers contain #, >, <, ( and )
+# and the alias names are ',' / ',,', so every sed delimiter and regex-metachar
+# choice needs escaping. awk lets us compare marker lines with string equality.
+# Rewrites through `cat >` rather than `mv` so the rc file keeps its inode, owner
+# and mode.
+strip_alias_block() {
+  local rc="$1" name="$2" tmp
+  [ -f "$rc" ] || return 0
+  tmp="${rc}.sbx.$$"
+  # Blank lines are buffered and only flushed once a non-blank line follows, so
+  # the separator blank we emit before a block is discarded along with the block
+  # itself. Without this every reinstall orphans one blank line per alias and the
+  # rc file grows without bound. Blank runs elsewhere are reproduced verbatim.
+  awk -v b="$(alias_block_begin "$name")" -v e="$(alias_block_end "$name")" '
+    $0 == b          { nb = 0; skip = 1; next }
+    $0 == e          { skip = 0; next }
+    skip             { next }
+    /^[ \t]*$/       { nb++; next }
+                     { for (i = 0; i < nb; i++) print ""; nb = 0; print }
+    END              { for (i = 0; i < nb; i++) print "" }
+  ' "$rc" >"$tmp" 2>/dev/null && cat "$tmp" >"$rc" 2>/dev/null
+  rm -f "$tmp"
+}
+
+# Anchors on the alias name followed by '=' (posix) or whitespace (fish), so ','
+# never matches a ',,' definition or vice versa.
+alias_line_re() { printf '^alias[ \t]+%s([ \t]*=|[ \t])' "$1"; }
+
+find_alias_line() {
+  local rc="$1" name="$2"
+  [ -f "$rc" ] || return 0
+  awk -v re="$(alias_line_re "$name")" '
+    { s = $0; sub(/^[ \t]+/, "", s) }
+    s ~ re { print s; exit }
+  ' "$rc" 2>/dev/null
+}
+
+remove_alias_line() {
+  local rc="$1" name="$2" tmp
+  [ -f "$rc" ] || return 0
+  tmp="${rc}.sbx.$$"
+  awk -v re="$(alias_line_re "$name")" '
+    { s = $0; sub(/^[ \t]+/, "", s) }
+    s ~ re { next }
+    { print }
+  ' "$rc" >"$tmp" 2>/dev/null && cat "$tmp" >"$rc" 2>/dev/null
+  rm -f "$tmp"
+}
+
+# Distinguishes "an alias this installer wrote" from "an alias the user wrote".
+# Only the former may be rewritten when the sandbox directory changes. Older
+# installer versions wrote these without markers, so shape is the only signal:
+# ',' pointed at a */bin/sandbox-shell, ',,' at a socket-scoped tmux invocation.
+alias_is_sandbox_managed() {
+  local name="$1" line="$2"
+  case "$name" in
+    ,)
+      case "$line" in *"/bin/sandbox-shell"*) return 0 ;; esac
+      ;;
+    ,,)
+      case "$line" in *tmux*-L*) return 0 ;; esac
+      ;;
+  esac
+  return 1
+}
+
+# Installs or refreshes one alias. Reinstalling into a different --sandbox-dir
+# must repoint the alias: leaving the old one behind would silently exec a path
+# that no longer exists. So our own block is always dropped and rewritten with
+# current paths, while an alias the user wrote themselves is left untouched.
+upsert_alias() {
+  local rc="$1" name="$2" line="$3" existing
+
+  # Drop our previous block first, so what remains is only user-authored.
+  strip_alias_block "$rc" "$name"
+
+  existing="$(find_alias_line "$rc" "$name")"
+  if [ -n "$existing" ]; then
+    if alias_is_sandbox_managed "$name" "$existing"; then
+      remove_alias_line "$rc" "$name"
+      log "'${name}' alias pointed at a previous sandbox install; repointing it"
+    else
+      log "'${name}' alias is user-defined in ${rc}; leaving it alone"
+      return 0
+    fi
   fi
+
   mkdir -p "$(dirname "$rc")" 2>/dev/null || true
-  if ! printf '\n# >>> sandbox shortcut (%s) >>>\n%s\n# <<< sandbox shortcut (%s) <<<\n' \
-       "$name" "$line" "$name" >>"$rc" 2>/dev/null; then
+  if ! printf '\n%s\n%s\n%s\n' \
+       "$(alias_block_begin "$name")" "$line" "$(alias_block_end "$name")" >>"$rc" 2>/dev/null; then
     warn "unable to write ${rc}; add manually: ${line}"
     return 0
   fi
@@ -1369,13 +1449,13 @@ append_alias_if_absent() {
   if [ "$IS_ROOT" -eq 1 ] && [ "$COMMA_USER" != "root" ]; then
     chown "${COMMA_USER}:" "$rc" 2>/dev/null || true
   fi
-  log "Added '${name}' alias to ${rc}"
+  log "Set '${name}' alias in ${rc}"
 }
 
 # `,`  -> drop into the sandbox shell.
 # `,,` -> attach the sandbox tmux session, creating it if absent.
-# Both additive and idempotent: an existing alias of the same name is never
-# touched, and nothing here is fatal.
+# Idempotent, and repoints both at the current sandbox dir on reinstall. An
+# alias the user wrote themselves is never touched. Nothing here is fatal.
 install_comma_alias() {
   resolve_invoking_user
   local rc comma_line dcomma_line tmux_env tmux_cmd
@@ -1402,8 +1482,36 @@ install_comma_alias() {
     dcomma_line="alias ,,='${tmux_env} ${tmux_cmd}'"
   fi
 
-  append_alias_if_absent "$rc" ","  "$comma_line"
-  append_alias_if_absent "$rc" ",," "$dcomma_line"
+  upsert_alias "$rc" ","  "$comma_line"
+  upsert_alias "$rc" ",," "$dcomma_line"
+}
+
+# --cleanup counterpart. Removes only aliases that both look installer-generated
+# and actually reference the sandbox being torn down, so a user-authored alias --
+# or one belonging to a second sandbox install elsewhere -- survives.
+remove_comma_aliases() {
+  resolve_invoking_user
+  local rc name existing
+  rc="$(comma_rc_file)" || return 0
+  [ -f "$rc" ] || return 0
+  for name in ',' ',,'; do
+    existing="$(find_alias_line "$rc" "$name")"
+    [ -n "$existing" ] || continue
+    case "$existing" in
+      *"$BASE_DIR"*) ;;
+      *)
+        log "'${name}' alias in ${rc} does not reference ${BASE_DIR}; leaving it alone"
+        continue
+        ;;
+    esac
+    if ! alias_is_sandbox_managed "$name" "$existing"; then
+      log "'${name}' alias is user-defined in ${rc}; leaving it alone"
+      continue
+    fi
+    strip_alias_block "$rc" "$name"
+    remove_alias_line "$rc" "$name"
+    log "Removed sandbox '${name}' alias from ${rc}"
+  done
 }
 
 # /etc/profile.d is the only genuinely root-owned artifact, and it is purely

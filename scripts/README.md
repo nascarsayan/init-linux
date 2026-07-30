@@ -51,7 +51,24 @@ The installer adds two aliases to the **invoking** user's rc file — resolved f
 
 `,,` uses `tmux new-session -A -s <socket>` rather than `attach -t`: `-A` attaches to an existing session and creates one otherwise, whereas `attach -t` fails with `no sessions` against a cold server. It also passes `TMUX_CONF`/`TMUX_CONF_LOCAL` and `-f`, which matter only on the create path — an already-running server has its config loaded — but without them a session first started by `,,` would come up with stock tmux config instead of the sandbox gpakosz one.
 
-Each alias is skipped independently if one of that exact name already exists, so your own definitions are never clobbered (`,` and `,,` are matched distinctly). For zsh, `ZDOTDIR` is honoured only when it points outside the sandbox — the sandbox's own `.zshrc` is regenerated on every run, so an alias placed there would be wiped by the next `sbox update`.
+Both aliases are written into marker-delimited blocks and **repointed on every install**, so moving to a different `--sandbox-dir` updates them instead of leaving a dead path behind:
+
+```bash
+curl -fsSL https://snas.short.gy/linux-init | bash -s -- --sandbox-dir ~/dir1
+rm -rf ~/dir1
+curl -fsSL https://snas.short.gy/linux-init | bash -s -- --sandbox-dir ~/dir2
+# ',' and ',,' now point at ~/dir2; no ~/dir1 references remain
+```
+
+An alias is only rewritten when it looks installer-generated — `,` pointing at a `*/bin/sandbox-shell`, `,,` at a socket-scoped `tmux`. That shape check is what lets an unmarked alias from an older installer (or one you wrote by hand in the same form) be adopted and refreshed. Anything else is treated as yours and left untouched:
+
+```bash
+alias ,='cd /my/project'   # survives; only ,, gets provisioned
+```
+
+`,` and `,,` are matched distinctly, so neither is mistaken for the other. Repeat installs do not accumulate lines or blank separators. For zsh, `ZDOTDIR` is honoured only when it points outside the sandbox — the sandbox's own `.zshrc` is regenerated on every run, so an alias placed there would be wiped by the next `sbox update`.
+
+`--cleanup` removes both aliases, but only when they actually reference the sandbox being torn down — a user-authored alias, or one belonging to a second sandbox install elsewhere, is left alone.
 
 ### When `dnf` can only see an unreachable internal mirror
 
@@ -172,9 +189,9 @@ docker stop "$container"
 ## Notes
 
 - Sandbox mode does **not** require root. Run as root only if you want system package installs and the `/etc/profile.d` hook; without it those two steps warn and are skipped.
-- Re-running the sandbox installer is idempotent; binaries are overwritten in place and configs re-copied. The `,` alias and the sandbox alias block are marker-guarded, so repeat runs never duplicate them.
+- Re-running the sandbox installer is idempotent; binaries are overwritten in place and configs re-copied. The `,`/`,,` aliases and the sandbox alias block are marker-guarded, so repeat runs never duplicate them, and installing into a new `--sandbox-dir` repoints the aliases rather than stranding them on the old path.
 - Hand edits to `<sandbox-dir>/zsh/.zshrc` and `<sandbox-dir>/p10k/p10k.zsh` are **overwritten** on every run — make changes in `templates/zshrc-tpl.zsh` / `templates/p10k.zsh` instead.
 - The published template is what `curl | bash` actually fetches; local edits to `templates/` only take effect for local runs until they are pushed to the `zinit` branch.
 - GitHub API calls may rate-limit; pinned release URLs are provided for the required tools.
 - The default shell is never changed; activation only happens for sessions that set `SANDBOX_ENABLE=1`.
-- Pass `--cleanup` to remove the sandbox dir and `/etc/profile.d/sandbox.sh` if you need to roll back. Removing the profile hook needs root; the `,` alias is left in your rc file for you to delete.
+- Pass `--cleanup` to remove the sandbox dir, `/etc/profile.d/sandbox.sh`, and the `,`/`,,` aliases if you need to roll back. Removing the profile hook needs root; the aliases are removed regardless since they live in your own rc file.
