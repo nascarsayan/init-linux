@@ -174,16 +174,25 @@ if command -v ghq >/dev/null 2>&1 && command -v fzf >/dev/null 2>&1; then
 fi
 
 BUN_INSTALL="${BUN_INSTALL:-${SANDBOX_HOME:-$HOME}/.bun}"
-GITTOP="${GITTOP:-${HOME}/ws/cluster}"
 MONOLITH_HOME="${MONOLITH_HOME:-${HOME}/ws/monolith}"
 # PYTHONPATH="${PYTHONPATH:-${MONOLITH_HOME}/src/infra}"
 export BUN_INSTALL MONOLITH_HOME
 
-# NOTE: do NOT export TAG or GITTOP here. cluster/flow/version.mk defines
-# TAG itself (ifndef TAG: TAG := $(USER)-$(GITHASH)) but only when GITTOP
-# resolves naturally (via `git rev-parse --show-toplevel` from inside
-# whichever Makefile is running) to the cluster repo -- forcing either var
-# breaks that self-resolution. Confirmed working with both unset.
+# GITTOP is pinned, deliberately unconditional -- `${GITTOP:-...}` could never
+# take effect here. Cerebras' global bashrc (/cb/user_env/bashrc-latest) installs
+# a devenv auto-loader that does `GITTOP=$(git rev-parse --show-toplevel); export
+# GITTOP` per directory, so a bash launching the sandbox shell hands down GITTOP
+# set to whatever repo it happened to be sitting in -- hence values like
+# .../ws/init-linux leaking in. Nothing in zsh recomputes it (no chpwd/precmd
+# hook touches GITTOP), so a plain assignment here holds for this shell and every
+# child.
+#
+# Caveat: this points at the main cluster checkout even when you are inside a gwq
+# worktree of it, so `make` in a worktree resolves TAG against ~/ws/cluster rather
+# than that worktree. Unset GITTOP in such a shell if you need the old
+# self-resolving behaviour from cluster/flow/version.mk.
+GITTOP="${HOME}/ws/cluster"
+export GITTOP
 
 if command -v kubectl >/dev/null 2>&1 && command -v krew >/dev/null 2>&1; then
   export KREW_ROOT="${KREW_ROOT:-${HOME}/.krew}"
