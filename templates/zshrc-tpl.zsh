@@ -200,7 +200,33 @@ zstyle ':completion:*:descriptions' format '%d'
 : "${ZSH_COMPDUMP:=${XDG_CACHE_HOME:-$HOME/.cache}/zsh/.zcompdump-${HOST}-${ZSH_VERSION}}"
 [[ -d ${ZSH_COMPDUMP:h} ]] || mkdir -p ${ZSH_COMPDUMP:h}
 autoload -Uz compinit
-compinit -C -d "$ZSH_COMPDUMP"
+# -C is what keeps startup fast: it trusts the dumpfile and skips scanning fpath
+# for new completions. The cost is that a completion added later is invisible
+# forever -- a dump can sit months stale while `kubectl <TAB>` silently misses
+# anything registered since. So do one full rebuild whenever the dump is over a
+# day old, and take the fast path otherwise.
+if [[ -n ${ZSH_COMPDUMP}(#qN.mh+24) || ! -s ${ZSH_COMPDUMP} ]]; then
+  # Prune dangling completion symlinks before the full scan. zinit symlinks each
+  # completion to an absolute path under its plugins dir, so anything that moves
+  # that path -- an NFS server rename, or relocating the sandbox -- leaves every
+  # link broken and makes compinit emit hundreds of "no such file or directory"
+  # lines. `compinit -C` hid this for months while completions silently vanished.
+  if [[ -n ${ZINIT[COMPLETIONS_DIR]:-} && -d ${ZINIT[COMPLETIONS_DIR]} ]]; then
+    _sbx_dangling=()
+    for _sbx_c in ${ZINIT[COMPLETIONS_DIR]}/*(N@); do
+      [[ -e $_sbx_c ]] || _sbx_dangling+=($_sbx_c)
+    done
+    unset _sbx_c
+    if (( $#_sbx_dangling )); then
+      rm -f -- $_sbx_dangling
+      print -P "%F{yellow}[sandbox]%f pruned $#_sbx_dangling dangling completion link(s); run 'zinit creinstall zsh-users/zsh-completions' to restore them."
+    fi
+    unset _sbx_dangling
+  fi
+  compinit -d "$ZSH_COMPDUMP"
+else
+  compinit -C -d "$ZSH_COMPDUMP"
+fi
 
 autoload -U +X bashcompinit && bashcompinit
 
@@ -225,3 +251,11 @@ unset P10K_DEFAULT
 WORDCHARS=''
 
 bindkey -e
+
+# broot's `br` shell function. The bash launcher is zsh-compatible, and inside the
+# sandbox XDG_CONFIG_HOME points at <sandbox>/.config, so this resolves to the
+# sandbox's own broot install. Kept in the template because write_zshrc rewrites
+# this file on every install -- appending it live would be lost on the next one.
+_broot_launcher="${XDG_CONFIG_HOME:-$HOME/.config}/broot/launcher/bash/br"
+[[ -r "${_broot_launcher}" ]] && source "${_broot_launcher}"
+unset _broot_launcher

@@ -147,6 +147,24 @@ Two traps worth knowing about, both of which silently broke earlier versions:
 - **Path canonicalisation.** `git worktree list` reports resolved physical paths while gwq reports symlinked ones (on an NFS home `/cb/home/<user>/ws` is a symlink). Comparing them raw made the basedir guard match nothing, and made `--skip` fail to protect the worktree you just entered. Every path comparison is canonicalised with `readlink -f`.
 - **The async spawn's redirections.** `,gwq` reads the helper's stdout via command substitution, which blocks until every holder of that pipe closes it. A background child inheriting stdout hangs the `cd` until gc finishes, so the child gets `>>log 2>&1 </dev/null` and `setsid`.
 
+### Completions go stale silently
+
+Two independent traps, both of which quietly broke `kubectl <TAB>` here for months.
+
+**`compinit -C` never re-scans.** The `-C` flag is what keeps startup fast — it trusts the dumpfile and skips scanning `fpath` for new completion functions. The cost is that anything registered later is invisible forever. A dump sat two and a half months stale. The template now does one full rebuild whenever the dump is older than a day, and takes the fast path otherwise.
+
+**zinit symlinks completions to absolute paths.** Each entry in `$ZINIT[COMPLETIONS_DIR]` points into the plugins dir by absolute path, so anything that moves that path — an NFS server rename, or relocating the sandbox — breaks every link at once. Here 179 of 180 pointed at a previous hostname. With `-C` this was completely silent; a full `compinit` instead emits hundreds of `no such file or directory` lines. The template now prunes dangling links on the daily rebuild and tells you to restore them:
+
+```bash
+zinit cclear                                  # drop dangling entries
+zinit creinstall zsh-users/zsh-completions    # re-link at the current path
+rm -f "$ZSH_COMPDUMP" && exec zsh             # rebuild the dump
+```
+
+Note that `kubectl` completion does not appear in the dump even when working: the OMZ plugin writes `_kubectl` into `$ZSH_CACHE_DIR/completions`, which only joins `fpath` after the turbo-loaded plugin runs — i.e. after `compinit`. The plugin sets `_comps[kubectl]` itself instead. Check it with `autoload -Uz +X _kubectl`, not by grepping the dump.
+
+Aliases need no separate handling: `complete_aliases` is off, so zsh completes `k` and `kgp` by expanding them to `kubectl`.
+
 ### When `dnf` can only see an unreachable internal mirror
 
 On hosts whose only configured repo is a down internal mirror:

@@ -999,6 +999,25 @@ alias ls='eza -lh --group-directories-first --icons=auto'
 if [[ -n "${SANDBOX_HOME:-}" ]]; then
   : "${TMUX_SOCKET_NAME:=sayann}"
   alias tmux='TMUX_CONF=${SANDBOX_HOME}/tmux/.tmux.conf TMUX_CONF_LOCAL=${SANDBOX_HOME}/tmux/.tmux.conf.local tmux -L ${TMUX_SOCKET_NAME} -f ${SANDBOX_HOME}/tmux/.tmux.conf'
+
+  # Same shortcuts the outer shell's rc gets from install_comma_alias. They are
+  # generated here rather than upserted, because this file is rewritten on every
+  # install -- an upserted alias would be wiped by the next `sbox update`.
+  #
+  # ,, is spelled out rather than reusing the tmux alias above: relying on zsh to
+  # recursively expand one alias into another is needlessly subtle, and the env
+  # vars are only consulted when the tmux server is first started anyway.
+  alias ,="${SANDBOX_HOME}/bin/sandbox-shell"
+  alias ,,="TMUX_CONF=${SANDBOX_HOME}/tmux/.tmux.conf TMUX_CONF_LOCAL=${SANDBOX_HOME}/tmux/.tmux.conf.local command tmux -L ${TMUX_SOCKET_NAME} -f ${SANDBOX_HOME}/tmux/.tmux.conf new-session -A -s ${TMUX_SOCKET_NAME}"
+  alias ,rv="${SANDBOX_HOME}/bin/sbx-review-open"
+  alias ,gcw="${SANDBOX_HOME}/bin/sbx-gwq-gc"
+
+  # A function, not an alias: it takes a branch argument and must cd this shell.
+  ,gwq() {
+    local d
+    d="$("${SANDBOX_HOME}/bin/sbx-gwq-review" "$@")" || return $?
+    [[ -n "$d" ]] && cd "$d"
+  }
 fi
 # <<< sandbox aliases <<<
 EOF
