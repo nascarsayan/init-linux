@@ -70,6 +70,24 @@ alias ,='cd /my/project'   # survives; only ,, gets provisioned
 
 `--cleanup` removes both aliases, but only when they actually reference the sandbox being torn down — a user-authored alias, or one belonging to a second sandbox install elsewhere, is left alone.
 
+### The `,gwq` review shortcut
+
+```bash
+,gwq <branch> [base-branch]
+```
+
+Fetches `<branch>` from `origin`, creates (or reuses) a `gwq` worktree for it, `cd`s you into it, and prints the diff stat against the base. `base-branch` defaults to `origin/HEAD`, then `main`, then `master`.
+
+The logic lives in `<sandbox-dir>/bin/sbx-gwq-review`, which prints only the worktree path on stdout (all logging goes to stderr) so the rc-side shim is just a `cd "$(...)"`. `,gwq` has to be a shell function rather than an alias — it takes an argument and must `cd` the calling shell.
+
+Notes on the behaviour:
+
+- The local branch is created explicitly as a tracking branch rather than relying on `git worktree add`'s DWIM, which fails with `invalid reference` when more than one remote publishes the same branch name.
+- An existing local branch that is strictly behind the remote is fast-forwarded; one that has **diverged** is left alone with a warning, so local work is never discarded. If the worktree has uncommitted changes nothing is moved.
+- Re-running is safe: `gwq add` errors when the directory already exists, so an existing worktree is reused.
+- The resolved base is written to `<worktree-gitdir>/sbx-review-base` — inside the gitdir, not the working tree, so it can never appear in the diff you are reviewing.
+- `SBX_REVIEW_REMOTE` overrides the remote (default `origin`).
+
 ### When `dnf` can only see an unreachable internal mirror
 
 On hosts whose only configured repo is a down internal mirror:

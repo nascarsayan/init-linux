@@ -1041,6 +1041,186 @@ write_p10k() {
   fi
 }
 
+# Heavy lifting for the ,gwq shortcut. Kept as a script rather than inlined into
+# the rc file so the logic is versioned with the sandbox and updated by `sbox
+# update`; the rc side stays a two-line shim that only performs the cd.
+write_gwq_review_script() {
+  local target="${BIN_DIR}/sbx-gwq-review"
+  cat <<'EOF' >"$target"
+#!/usr/bin/env bash
+# Prepare a branch for PR-style review: fetch it, materialise a gwq worktree and
+# print that worktree's path on stdout. Every human-facing line goes to stderr so
+# the caller can safely do:  cd "$(sbx-gwq-review <branch>)"
+set -euo pipefail
+
+log() { printf '[gwq-review] %s\n' "$*" >&2; }
+die() { printf '[gwq-review] ERROR: %s\n' "$*" >&2; exit 1; }
+
+usage() {
+  cat >&2 <<'USAGE'
+usage: sbx-gwq-review <branch> [base-branch]
+
+Fetches <branch> from origin, creates or reuses a gwq worktree for it, records
+the review base, and prints the worktree path on stdout.
+[base-branch] defaults to origin/HEAD, then main, then master.
+USAGE
+}
+
+[ $# -ge 1 ] || { usage; exit 2; }
+case "$1" in -h|--help) usage; exit 0 ;; esac
+
+branch="$1"
+base_arg="${2:-}"
+remote="${SBX_REVIEW_REMOTE:-origin}"
+
+command -v gwq >/dev/null 2>&1 || die "gwq not found on PATH"
+command -v jq  >/dev/null 2>&1 || die "jq not found on PATH"
+git rev-parse --git-dir >/dev/null 2>&1 || die "not inside a git repository"
+git remote get-url "$remote" >/dev/null 2>&1 || die "no '$remote' remote in this repository"
+
+# Explicit refspec rather than plain `git fetch origin <branch>`: this guarantees
+# refs/remotes/<remote>/<branch> exists afterwards, which is what gwq resolves
+# the branch against.
+log "fetching ${remote}/${branch}"
+git fetch --quiet "$remote" "+refs/heads/${branch}:refs/remotes/${remote}/${branch}" \
+  || die "cannot fetch branch '${branch}' from ${remote}"
+
+# origin/HEAD is frequently unset (it is only written by an initial clone, not by
+# later fetches), so fall back to the conventional names before giving up.
+resolve_base() {
+  local h c
+  if [ -n "$base_arg" ]; then
+    printf '%s' "${base_arg#"${remote}"/}"
+    return 0
+  fi
+  if h="$(git symbolic-ref --short "refs/remotes/${remote}/HEAD" 2>/dev/null)"; then
+    printf '%s' "${h#"${remote}"/}"
+    return 0
+  fi
+  # Unset: ask the remote what its default branch is and cache the answer, so
+  # this costs one network round-trip once rather than on every invocation.
+  if git remote set-head "$remote" -a >/dev/null 2>&1 &&
+     h="$(git symbolic-ref --short "refs/remotes/${remote}/HEAD" 2>/dev/null)"; then
+    printf '%s' "${h#"${remote}"/}"
+    return 0
+  fi
+  for c in main master; do
+    if git show-ref --verify --quiet "refs/remotes/${remote}/${c}" ||
+       git ls-remote --exit-code --heads "$remote" "$c" >/dev/null 2>&1; then
+      printf '%s' "$c"
+      return 0
+    fi
+  done
+  return 1
+}
+base="$(resolve_base)" || die "cannot determine base branch; pass it as the 2nd argument"
+
+log "fetching base ${remote}/${base}"
+git fetch --quiet "$remote" "+refs/heads/${base}:refs/remotes/${remote}/${base}" \
+  || log "warning: could not refresh ${remote}/${base}; using the cached ref"
+
+remote_ref="refs/remotes/${remote}/${branch}"
+
+# Which worktree, if any, currently has the branch checked out.
+wt_holding_branch() {
+  git worktree list --porcelain 2>/dev/null | awk -v b="refs/heads/${branch}" '
+    /^worktree / { p = substr($0, 10) }
+    $0 == "branch " b { print p; exit }
+  '
+}
+
+ff_local_branch() {
+  local holder
+  holder="$(wt_holding_branch)"
+  if [ -z "$holder" ]; then
+    git branch --quiet --force "$branch" "$remote_ref" \
+      && log "fast-forwarded ${branch} to ${remote}/${branch}" \
+      || log "warning: could not fast-forward ${branch}"
+    return 0
+  fi
+  # Checked out somewhere: `git branch -f` refuses, so move it via the worktree,
+  # and only when there is nothing uncommitted to lose.
+  if git -C "$holder" diff --quiet 2>/dev/null && git -C "$holder" diff --cached --quiet 2>/dev/null; then
+    git -C "$holder" merge --ff-only "$remote_ref" >/dev/null 2>&1 \
+      && log "fast-forwarded ${branch} to ${remote}/${branch}" \
+      || log "warning: could not fast-forward ${branch} in ${holder}"
+  else
+    log "warning: ${holder} has uncommitted changes; leaving ${branch} where it is"
+  fi
+}
+
+# Create the local branch explicitly rather than leaning on git's DWIM in
+# `git worktree add <path> <branch>`: DWIM refuses outright ("invalid reference")
+# when more than one remote publishes the same branch name, and it gives no say
+# in what happens to an already-existing stale local branch.
+ensure_local_branch() {
+  local local_sha remote_sha
+  if ! git show-ref --verify --quiet "refs/heads/${branch}"; then
+    log "creating local branch ${branch} tracking ${remote}/${branch}"
+    git branch --quiet --track "$branch" "$remote_ref" \
+      || die "cannot create local branch '${branch}'"
+    return 0
+  fi
+  local_sha="$(git rev-parse --verify --quiet "refs/heads/${branch}" || true)"
+  remote_sha="$(git rev-parse --verify --quiet "$remote_ref" || true)"
+  [ -n "$local_sha" ] && [ -n "$remote_sha" ] || return 0
+  [ "$local_sha" = "$remote_sha" ] && return 0
+  if git merge-base --is-ancestor "$local_sha" "$remote_sha" 2>/dev/null; then
+    ff_local_branch
+  else
+    log "warning: local ${branch} has diverged from ${remote}/${branch}"
+    log "         reviewing the LOCAL state; 'git reset --hard ${remote}/${branch}' in the"
+    log "         worktree to match the remote exactly"
+  fi
+}
+
+# gwq prints a plain "No worktrees found in <dir>" line rather than `[]` when the
+# basedir is empty, which makes jq exit non-zero and -- under `set -e` -- would
+# abort on first use in a fresh sandbox. So sniff for a JSON array first.
+wt_for_branch() {
+  local json
+  json="$(gwq list --json -g 2>/dev/null || true)"
+  case "$json" in
+    \[*) ;;
+    *) return 0 ;;
+  esac
+  printf '%s' "$json" \
+    | jq -r --arg b "$branch" '.[] | select(.branch == $b) | .path' 2>/dev/null \
+    | head -n1
+}
+
+ensure_local_branch
+
+# `gwq add` errors out when the directory already exists, so reuse takes priority.
+wt="$(wt_for_branch)"
+if [ -n "$wt" ] && [ -d "$wt" ]; then
+  log "reusing worktree ${wt}"
+else
+  log "creating worktree for ${branch}"
+  gwq add "$branch" >&2 || die "gwq add failed for '${branch}'"
+  wt="$(wt_for_branch)"
+  [ -n "$wt" ] && [ -d "$wt" ] || die "worktree path not resolvable after gwq add"
+fi
+
+# Stash the base inside the worktree's gitdir -- not the working tree, so it can
+# never show up in the diff being reviewed. Editor tooling reads it from here.
+gitdir="$(git -C "$wt" rev-parse --absolute-git-dir)"
+printf '%s\n' "${remote}/${base}" >"${gitdir}/sbx-review-base"
+
+mb="$(git -C "$wt" merge-base "${remote}/${base}" HEAD 2>/dev/null || true)"
+if [ -n "$mb" ]; then
+  log "review base ${remote}/${base} @ ${mb:0:12}"
+  git -C "$wt" --no-pager diff --stat "${mb}...HEAD" >&2 || true
+else
+  log "warning: no merge-base between HEAD and ${remote}/${base}"
+fi
+
+printf '%s\n' "$wt"
+EOF
+  chmod +x "$target"
+  log "Created gwq review helper at ${target}"
+}
+
 write_shell_wrapper() {
   local wrapper="${BIN_DIR}/sandbox-shell"
   local legacy="${BIN_DIR}/sandbox-login"
@@ -1375,9 +1555,26 @@ strip_alias_block() {
   rm -f "$tmp"
 }
 
-# Anchors on the alias name followed by '=' (posix) or whitespace (fish), so ','
-# never matches a ',,' definition or vice versa.
-alias_line_re() { printf '^alias[ \t]+%s([ \t]*=|[ \t])' "$1"; }
+has_alias_block() {
+  local rc="$1" name="$2"
+  [ -f "$rc" ] || return 1
+  grep -Fqx "$(alias_block_begin "$name")" "$rc"
+}
+
+alias_block_body() {
+  local rc="$1" name="$2"
+  [ -f "$rc" ] || return 0
+  awk -v b="$(alias_block_begin "$name")" -v e="$(alias_block_end "$name")" '
+    $0 == b { inb = 1; next }
+    $0 == e { inb = 0; next }
+    inb     { print }
+  ' "$rc" 2>/dev/null
+}
+
+# Anchors on the shortcut name followed by '=' (posix alias), whitespace (fish
+# alias), or '()' (shell function), so ',' never matches a ',,' definition or
+# vice versa and a function-form shim like ',gwq()' is still detected.
+alias_line_re() { printf '^(alias[ \t]+%s([ \t]*=|[ \t])|%s[ \t]*\\(\\))' "$1" "$1"; }
 
 find_alias_line() {
   local rc="$1" name="$2"
@@ -1458,7 +1655,7 @@ upsert_alias() {
 # alias the user wrote themselves is never touched. Nothing here is fatal.
 install_comma_alias() {
   resolve_invoking_user
-  local rc comma_line dcomma_line tmux_env tmux_cmd
+  local rc comma_line dcomma_line gwq_line tmux_env tmux_cmd
   if ! rc="$(comma_rc_file)"; then
     warn "unrecognized login shell '${COMMA_SHELL}' for ${COMMA_USER}; add manually: alias ,='${BIN_DIR}/sandbox-shell'"
     return 0
@@ -1482,8 +1679,25 @@ install_comma_alias() {
     dcomma_line="alias ,,='${tmux_env} ${tmux_cmd}'"
   fi
 
-  upsert_alias "$rc" ","  "$comma_line"
-  upsert_alias "$rc" ",," "$dcomma_line"
+  # ,gwq must be a function, not an alias: it takes a branch argument and has to
+  # cd the *calling* shell, which a subprocess cannot do. Comma-prefixed function
+  # names are accepted by both bash and zsh.
+  if [ "${COMMA_SHELL##*/}" = "fish" ]; then
+    gwq_line="function ,gwq
+    set -l d (${BIN_DIR}/sbx-gwq-review \$argv); or return \$status
+    test -n \"\$d\"; and cd \$d
+end"
+  else
+    gwq_line=",gwq() {
+  local d
+  d=\"\$(${BIN_DIR}/sbx-gwq-review \"\$@\")\" || return \$?
+  [ -n \"\$d\" ] && cd \"\$d\"
+}"
+  fi
+
+  upsert_alias "$rc" ","     "$comma_line"
+  upsert_alias "$rc" ",,"    "$dcomma_line"
+  upsert_alias "$rc" ",gwq"  "$gwq_line"
 }
 
 # --cleanup counterpart. Removes only aliases that both look installer-generated
@@ -1494,21 +1708,36 @@ remove_comma_aliases() {
   local rc name existing
   rc="$(comma_rc_file)" || return 0
   [ -f "$rc" ] || return 0
-  for name in ',' ',,'; do
+  for name in ',' ',,' ',gwq'; do
+    # A marker block is ours by construction, so match on its body rather than on
+    # the definition line -- a function-form shim's first line is just ',gwq()'
+    # and carries no path to test against BASE_DIR.
+    if has_alias_block "$rc" "$name"; then
+      case "$(alias_block_body "$rc" "$name")" in
+        *"$BASE_DIR"*)
+          strip_alias_block "$rc" "$name"
+          log "Removed sandbox '${name}' shortcut from ${rc}"
+          ;;
+        *)
+          log "'${name}' block in ${rc} belongs to another sandbox; leaving it alone"
+          ;;
+      esac
+      continue
+    fi
+    # Unmarked leftover from an installer version that predates the markers.
     existing="$(find_alias_line "$rc" "$name")"
     [ -n "$existing" ] || continue
+    if ! alias_is_sandbox_managed "$name" "$existing"; then
+      log "'${name}' is user-defined in ${rc}; leaving it alone"
+      continue
+    fi
     case "$existing" in
       *"$BASE_DIR"*) ;;
       *)
-        log "'${name}' alias in ${rc} does not reference ${BASE_DIR}; leaving it alone"
+        log "'${name}' in ${rc} does not reference ${BASE_DIR}; leaving it alone"
         continue
         ;;
     esac
-    if ! alias_is_sandbox_managed "$name" "$existing"; then
-      log "'${name}' alias is user-defined in ${rc}; leaving it alone"
-      continue
-    fi
-    strip_alias_block "$rc" "$name"
     remove_alias_line "$rc" "$name"
     log "Removed sandbox '${name}' alias from ${rc}"
   done
@@ -1585,6 +1814,7 @@ main() {
   write_shell_wrapper
   write_sssh_wrapper
   write_sbox_wrapper
+  write_gwq_review_script
   write_profile_snippet
   install_comma_alias
   log "Installation complete. Launch ${BASE_DIR}/bin/sbox help to see lifecycle commands."
