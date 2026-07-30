@@ -40,11 +40,18 @@ curl -fsSL https://snas.short.gy/linux-init | bash -s -- --debug
 curl -fsSL https://snas.short.gy/linux-init | sudo bash -s -- --no-sandbox
 ```
 
-### The `,` shortcut
+### The `,` and `,,` shortcuts
 
-The installer adds `alias ,='<sandbox-dir>/bin/sandbox-shell'` to the **invoking** user's rc file — resolved from `SUDO_USER` and their passwd login shell, so `sudo bash` still targets your own `~/.bashrc` rather than root's. Supported: bash (`.bashrc`), zsh (`.zshrc`), ksh (`.kshrc`), fish (`.config/fish/config.fish`), sh/dash (`.profile`).
+The installer adds two aliases to the **invoking** user's rc file — resolved from `SUDO_USER` and their passwd login shell, so `sudo bash` still targets your own `~/.bashrc` rather than root's. Supported: bash (`.bashrc`), zsh (`.zshrc`), ksh (`.kshrc`), fish (`.config/fish/config.fish`), sh/dash (`.profile`).
 
-It is skipped entirely if a `,` alias already exists, so your own definition is never clobbered. For zsh, `ZDOTDIR` is honoured only when it points outside the sandbox — the sandbox's own `.zshrc` is regenerated on every run, so an alias placed there would be wiped by the next `sbox update`.
+| Alias | Does |
+| --- | --- |
+| `,` | Drops into the sandbox shell (`<sandbox-dir>/bin/sandbox-shell`) |
+| `,,` | Attaches the sandbox tmux session, **creating it if it does not exist** |
+
+`,,` uses `tmux new-session -A -s <socket>` rather than `attach -t`: `-A` attaches to an existing session and creates one otherwise, whereas `attach -t` fails with `no sessions` against a cold server. It also passes `TMUX_CONF`/`TMUX_CONF_LOCAL` and `-f`, which matter only on the create path — an already-running server has its config loaded — but without them a session first started by `,,` would come up with stock tmux config instead of the sandbox gpakosz one.
+
+Each alias is skipped independently if one of that exact name already exists, so your own definitions are never clobbered (`,` and `,,` are matched distinctly). For zsh, `ZDOTDIR` is honoured only when it points outside the sandbox — the sandbox's own `.zshrc` is regenerated on every run, so an alias placed there would be wiped by the next `sbox update`.
 
 ### When `dnf` can only see an unreachable internal mirror
 

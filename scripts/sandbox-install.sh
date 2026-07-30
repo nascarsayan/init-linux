@@ -1347,31 +1347,21 @@ comma_rc_file() {
   esac
 }
 
-# `,` -> drop into the sandbox shell. Additive and idempotent: never touched if
-# the user already defines a `,` alias, and never fatal.
-install_comma_alias() {
-  resolve_invoking_user
-  local rc alias_line
-  if ! rc="$(comma_rc_file)"; then
-    warn "unrecognized login shell '${COMMA_SHELL}' for ${COMMA_USER}; add manually: alias ,='${BIN_DIR}/sandbox-shell'"
+# Appends one alias to $1 (rc file) unless a same-named alias already exists.
+# $2 is the alias name, $3 the definition line. Never fatal.
+append_alias_if_absent() {
+  local rc="$1" name="$2" line="$3"
+  # Anchor on the name followed by '=' (posix) or whitespace (fish) so that ','
+  # does not match an existing ',,' definition or vice versa.
+  local pat="^[[:space:]]*alias[[:space:]]+${name}([[:space:]]*=|[[:space:]])"
+  if [ -f "$rc" ] && grep -qE "$pat" "$rc"; then
+    log "'${name}' alias already defined in ${rc}; leaving it alone"
     return 0
   fi
-
-  if [ "${COMMA_SHELL##*/}" = "fish" ]; then
-    alias_line="alias , '${BIN_DIR}/sandbox-shell'"
-  else
-    alias_line="alias ,='${BIN_DIR}/sandbox-shell'"
-  fi
-
-  # Matches `alias ,=...` (posix shells) and `alias , ...` (fish).
-  if [ -f "$rc" ] && grep -qE "^[[:space:]]*alias[[:space:]]+,([[:space:]]*=|[[:space:]])" "$rc"; then
-    log "',' alias already defined in ${rc}; leaving it alone"
-    return 0
-  fi
-
   mkdir -p "$(dirname "$rc")" 2>/dev/null || true
-  if ! printf '\n# >>> sandbox shortcut >>>\n%s\n# <<< sandbox shortcut <<<\n' "$alias_line" >>"$rc" 2>/dev/null; then
-    warn "unable to write ${rc}; add manually: ${alias_line}"
+  if ! printf '\n# >>> sandbox shortcut (%s) >>>\n%s\n# <<< sandbox shortcut (%s) <<<\n' \
+       "$name" "$line" "$name" >>"$rc" 2>/dev/null; then
+    warn "unable to write ${rc}; add manually: ${line}"
     return 0
   fi
   # If root created the file it would otherwise be root-owned and unwritable
@@ -1379,7 +1369,41 @@ install_comma_alias() {
   if [ "$IS_ROOT" -eq 1 ] && [ "$COMMA_USER" != "root" ]; then
     chown "${COMMA_USER}:" "$rc" 2>/dev/null || true
   fi
-  log "Added ',' alias to ${rc} -> ${BIN_DIR}/sandbox-shell"
+  log "Added '${name}' alias to ${rc}"
+}
+
+# `,`  -> drop into the sandbox shell.
+# `,,` -> attach the sandbox tmux session, creating it if absent.
+# Both additive and idempotent: an existing alias of the same name is never
+# touched, and nothing here is fatal.
+install_comma_alias() {
+  resolve_invoking_user
+  local rc comma_line dcomma_line tmux_env tmux_cmd
+  if ! rc="$(comma_rc_file)"; then
+    warn "unrecognized login shell '${COMMA_SHELL}' for ${COMMA_USER}; add manually: alias ,='${BIN_DIR}/sandbox-shell'"
+    return 0
+  fi
+
+  # `new-session -A -s` attaches when the session exists and creates it
+  # otherwise; `attach -t` only ever attaches and fails with "no sessions" on a
+  # cold server. TMUX_CONF/TMUX_CONF_LOCAL and -f matter only on the create
+  # path -- an existing server already has its config loaded -- but without them
+  # a session first started by ',,' would come up with stock tmux config instead
+  # of the sandbox one.
+  tmux_env="TMUX_CONF=${TMUX_CONF} TMUX_CONF_LOCAL=${TMUX_CONF_LOCAL}"
+  tmux_cmd="tmux -L ${TMUX_SOCKET_NAME_DEFAULT} -f ${TMUX_CONF} new-session -A -s ${TMUX_SOCKET_NAME_DEFAULT}"
+
+  if [ "${COMMA_SHELL##*/}" = "fish" ]; then
+    comma_line="alias , '${BIN_DIR}/sandbox-shell'"
+    # fish has no VAR=val cmd prefix syntax; `env` is the portable equivalent.
+    dcomma_line="alias ,, 'env ${tmux_env} ${tmux_cmd}'"
+  else
+    comma_line="alias ,='${BIN_DIR}/sandbox-shell'"
+    dcomma_line="alias ,,='${tmux_env} ${tmux_cmd}'"
+  fi
+
+  append_alias_if_absent "$rc" ","  "$comma_line"
+  append_alias_if_absent "$rc" ",," "$dcomma_line"
 }
 
 # /etc/profile.d is the only genuinely root-owned artifact, and it is purely
