@@ -73,18 +73,27 @@ alias ,='cd /my/project'   # survives; only ,, gets provisioned
 ### The `,gwq` review shortcut
 
 ```bash
-,gwq <branch> [base-branch]
+,gwq <branch>            # existing branch
+,gwq <pr-number>         # all digits -> that PR's head branch
+,gwq -b <new-branch>     # new branch forked from the freshly fetched base
+,gwq <arg> [base-branch] # override the base
 ```
 
-Fetches `<branch>` from `origin`, creates (or reuses) a `gwq` worktree for it, `cd`s you into it, and prints the diff stat against the base. `base-branch` defaults to `origin/HEAD`, then `main`, then `master`.
+Creates or reuses a `gwq` worktree, `cd`s into it, and prints the diff stat against the base.
 
-The logic lives in `<sandbox-dir>/bin/sbx-gwq-review`, which prints only the worktree path on stdout (all logging goes to stderr) so the rc-side shim is just a `cd "$(...)"`. `,gwq` has to be a shell function rather than an alias — it takes an argument and must `cd` the calling shell.
+The argument is interpreted by shape: **all digits means a PR number**, anything else a branch name. For a PR, `gh` supplies the head branch *and* the PR's own base, which is more accurate than guessing via `origin/HEAD`. Otherwise the base is `origin/HEAD`, then `main`, then `master`, and `[base-branch]` always wins.
 
-Notes on the behaviour:
+With `-b` the base is fetched first and the new branch is forked from it, so you always branch from current upstream rather than a stale local ref. It refuses if the branch already exists, rather than silently handing you something that isn't fresh.
 
+The logic lives in `<sandbox-dir>/bin/sbx-gwq-review`, which prints only the worktree path on stdout (all logging goes to stderr) so the rc-side shim is just a `cd "$(...)"`. `,gwq` has to be a shell function rather than an alias — it takes arguments and must `cd` the calling shell.
+
+Behaviour worth knowing:
+
+- **A PR's head branch is often missing from `refs/heads`.** Fork PRs never had one on your remote, and a merged PR's branch is usually deleted — true of both PR #784 and #866 here. `refs/pull/<n>/head` survives all of those, so PR mode falls back to it. `refs/heads` is still tried first, since it gives the branch a natural upstream.
+- **A branch gone from the remote but still local** (the same post-merge deletion) degrades to a warning and uses the local branch, instead of failing.
 - The local branch is created explicitly as a tracking branch rather than relying on `git worktree add`'s DWIM, which fails with `invalid reference` when more than one remote publishes the same branch name.
-- An existing local branch that is strictly behind the remote is fast-forwarded; one that has **diverged** is left alone with a warning, so local work is never discarded. If the worktree has uncommitted changes nothing is moved.
-- Re-running is safe: `gwq add` errors when the directory already exists, so an existing worktree is reused.
+- An existing local branch strictly behind the remote is fast-forwarded; one that has **diverged** is left alone with a warning, so local work is never discarded. If the worktree has uncommitted changes nothing is moved.
+- Re-running is safe: `gwq add` errors when the directory exists, so an existing worktree is reused.
 - The resolved base is written to `<worktree-gitdir>/sbx-review-base` — inside the gitdir, not the working tree, so it can never appear in the diff you are reviewing.
 - `SBX_REVIEW_REMOTE` overrides the remote (default `origin`).
 

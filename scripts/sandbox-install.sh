@@ -1090,18 +1090,33 @@ fi
 
 usage() {
   cat >&2 <<'USAGE'
-usage: sbx-gwq-review <branch> [base-branch]
+usage: sbx-gwq-review [-b] <branch | pr-number | new-branch-name> [base-branch]
 
-Fetches <branch> from origin, creates or reuses a gwq worktree for it, records
-the review base, and prints the worktree path on stdout.
-[base-branch] defaults to origin/HEAD, then main, then master.
+Creates or reuses a gwq worktree and prints its path on stdout.
+
+  <branch>       an existing branch, fetched from the remote
+  <pr-number>    all digits: resolved to that pull request's head branch, and the
+                 PR's own base branch becomes the review base
+  -b <name>      create a new branch forked from the freshly fetched base
+
+[base-branch] overrides the base. Otherwise: the PR's base for a PR, else
+origin/HEAD, else main, else master.
 USAGE
 }
 
+NEW_BRANCH=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -b|--new-branch) NEW_BRANCH=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    --) shift; break ;;
+    -*) die "unknown option: $1" ;;
+    *) break ;;
+  esac
+done
 [ $# -ge 1 ] || { usage; exit 2; }
-case "$1" in -h|--help) usage; exit 0 ;; esac
 
-branch="$1"
+target="$1"
 base_arg="${2:-}"
 remote="${SBX_REVIEW_REMOTE:-origin}"
 
@@ -1110,12 +1125,35 @@ command -v jq  >/dev/null 2>&1 || die "jq not found on PATH"
 git rev-parse --git-dir >/dev/null 2>&1 || die "not inside a git repository"
 git remote get-url "$remote" >/dev/null 2>&1 || die "no '$remote' remote in this repository"
 
-# Explicit refspec rather than plain `git fetch origin <branch>`: this guarantees
-# refs/remotes/<remote>/<branch> exists afterwards, which is what gwq resolves
-# the branch against.
-log "fetching ${remote}/${branch}"
-git fetch --quiet "$remote" "+refs/heads/${branch}:refs/remotes/${remote}/${branch}" \
-  || die "cannot fetch branch '${branch}' from ${remote}"
+# An all-digits argument is a PR number; anything else is a branch name -- to be
+# created when -b is given, otherwise expected to already exist on the remote.
+mode="branch"
+pr=""
+pr_cross=0
+if [ "$NEW_BRANCH" -eq 1 ]; then
+  mode="new"
+  branch="$target"
+elif printf '%s' "$target" | grep -qE '^[0-9]+$'; then
+  mode="pr"
+  pr="$target"
+else
+  branch="$target"
+fi
+
+if [ "$mode" = "pr" ]; then
+  command -v gh >/dev/null 2>&1 || die "gh not found on PATH; needed to resolve PR #${pr}"
+  log "resolving PR #${pr}"
+  pr_json="$(gh pr view "$pr" --json headRefName,baseRefName,isCrossRepository,state 2>/dev/null || true)"
+  [ -n "$pr_json" ] || die "cannot read PR #${pr} -- wrong number, or no access to this repo?"
+  branch="$(printf '%s' "$pr_json" | jq -r '.headRefName // empty')"
+  [ -n "$branch" ] || die "PR #${pr} has no head branch"
+  [ "$(printf '%s' "$pr_json" | jq -r '.isCrossRepository')" = "true" ] && pr_cross=1
+  # A PR knows its own base, which beats guessing via origin/HEAD.
+  if [ -z "$base_arg" ]; then
+    base_arg="$(printf '%s' "$pr_json" | jq -r '.baseRefName // empty')"
+  fi
+  log "PR #${pr} [$(printf '%s' "$pr_json" | jq -r '.state')]: ${branch} -> ${base_arg:-?}"
+fi
 
 # origin/HEAD is frequently unset (it is only written by an initial clone, not by
 # later fetches), so fall back to the conventional names before giving up.
@@ -1153,6 +1191,53 @@ git fetch --quiet "$remote" "+refs/heads/${base}:refs/remotes/${remote}/${base}"
 
 remote_ref="refs/remotes/${remote}/${branch}"
 
+# Bring the branch into existence locally. Explicit refspecs rather than a plain
+# `git fetch origin <branch>`, so refs/remotes/<remote>/... is guaranteed to exist
+# afterwards -- that is what the branch gets created from and tracks.
+fetch_or_create_branch() {
+  case "$mode" in
+    new)
+      if git show-ref --verify --quiet "refs/heads/${branch}"; then
+        die "branch '${branch}' already exists; drop -b to use it, or choose another name"
+      fi
+      log "creating ${branch} from ${remote}/${base}"
+      git branch --quiet "$branch" "refs/remotes/${remote}/${base}" \
+        || die "cannot create branch '${branch}' from ${remote}/${base}"
+      ;;
+    pr)
+      # Prefer refs/heads, which gives the branch a natural upstream so a later
+      # `,gwq <branch>` fast-forwards it. But it is frequently absent: a fork PR
+      # never had one on our remote, and a merged PR's branch is usually deleted
+      # (both PR #784 and #866 here). refs/pull/<n>/head survives all of those.
+      if [ "$pr_cross" -eq 0 ] && \
+         git fetch --quiet "$remote" "+refs/heads/${branch}:${remote_ref}" 2>/dev/null; then
+        log "fetched ${remote}/${branch}"
+      else
+        remote_ref="refs/remotes/${remote}/pr/${pr}"
+        log "head branch unavailable on ${remote}; fetching refs/pull/${pr}/head"
+        git fetch --quiet "$remote" "+refs/pull/${pr}/head:${remote_ref}" \
+          || die "cannot fetch refs/pull/${pr}/head for PR #${pr}"
+      fi
+      ensure_local_branch
+      ;;
+    *)
+      if git fetch --quiet "$remote" "+refs/heads/${branch}:${remote_ref}" 2>/dev/null; then
+        log "fetched ${remote}/${branch}"
+      elif git show-ref --verify --quiet "refs/heads/${branch}"; then
+        # Gone from the remote but still here: typical of a branch deleted after
+        # its PR merged. Reviewing it locally is still legitimate, so degrade
+        # rather than fail. Pointing remote_ref at the local branch makes the
+        # fast-forward check below a no-op.
+        log "warning: ${remote}/${branch} no longer exists (deleted after merge?); using the local branch"
+        remote_ref="refs/heads/${branch}"
+      else
+        die "branch '${branch}' not found on ${remote}, and no local branch of that name"
+      fi
+      ensure_local_branch
+      ;;
+  esac
+}
+
 # Which worktree, if any, currently has the branch checked out.
 wt_holding_branch() {
   git worktree list --porcelain 2>/dev/null | awk -v b="refs/heads/${branch}" '
@@ -1166,7 +1251,7 @@ ff_local_branch() {
   holder="$(wt_holding_branch)"
   if [ -z "$holder" ]; then
     git branch --quiet --force "$branch" "$remote_ref" \
-      && log "fast-forwarded ${branch} to ${remote}/${branch}" \
+      && log "fast-forwarded ${branch} to ${remote_ref#refs/remotes/}" \
       || log "warning: could not fast-forward ${branch}"
     return 0
   fi
@@ -1188,7 +1273,7 @@ ff_local_branch() {
 ensure_local_branch() {
   local local_sha remote_sha
   if ! git show-ref --verify --quiet "refs/heads/${branch}"; then
-    log "creating local branch ${branch} tracking ${remote}/${branch}"
+    log "creating local branch ${branch} tracking ${remote_ref#refs/remotes/}"
     git branch --quiet --track "$branch" "$remote_ref" \
       || die "cannot create local branch '${branch}'"
     return 0
@@ -1221,7 +1306,7 @@ wt_for_branch() {
     | head -n1
 }
 
-ensure_local_branch
+fetch_or_create_branch
 
 # `gwq add` errors out when the directory already exists, so reuse takes priority.
 wt="$(wt_for_branch)"
@@ -1262,7 +1347,11 @@ printf '%s\n' "${remote}/${base}" >"${gitdir}/sbx-review-base"
 mb="$(git -C "$wt" merge-base "${remote}/${base}" HEAD 2>/dev/null || true)"
 if [ -n "$mb" ]; then
   log "review base ${remote}/${base} @ ${mb:0:12}"
-  git -C "$wt" --no-pager diff --stat "${mb}...HEAD" >&2 || true
+  if [ "$mode" = "new" ]; then
+    log "new branch, no commits yet"
+  else
+    git -C "$wt" --no-pager diff --stat "${mb}...HEAD" >&2 || true
+  fi
 else
   log "warning: no merge-base between HEAD and ${remote}/${base}"
 fi
