@@ -33,8 +33,28 @@ alias kndc="kind create cluster --config=$azarc/src/kind-cluster/kind-config;ka 
 alias kndd="kind delete cluster --name kind"
 alias kndre="kndd;kndc"
 
-command -v kubecolor >/dev/null 2>&1 && alias kubectl="kubecolor"
-command -v kubectl >/dev/null && compdef kubecolor=kubectl
+# Mirrors templates/zshrc-tpl.zsh. A bare `alias kubectl=kubecolor` hangs on
+# `exec -it`, `attach`, `port-forward`, `logs -f` and `get -w`: kubecolor buffers
+# stdout to colorize it, which breaks raw pty streaming. A function lets those
+# subcommands reach the real kubectl, and keeps the typed word as `kubectl` so the
+# existing completion applies without an extra compdef.
+if (( $+commands[kubecolor] )); then
+  kubectl() {
+    local sub="" a
+    for a in "$@"; do
+      [[ $a == -* ]] || { sub=$a; break }
+    done
+    local -a passthrough=(exec attach port-forward proxy cp edit debug wait)
+    if (( ${passthrough[(I)$sub]} )); then command kubectl "$@"; return; fi
+    case $sub in
+      logs) (( ${@[(I)-f]} || ${@[(I)--follow]} )) && { command kubectl "$@"; return } ;;
+      get)  (( ${@[(I)-w]} || ${@[(I)--watch]} || ${@[(I)--watch-only]} )) && { command kubectl "$@"; return } ;;
+      run|debug) (( ${@[(I)-i]} || ${@[(I)-t]} || ${@[(I)-it]} || ${@[(I)--stdin]} || ${@[(I)--tty]} )) && { command kubectl "$@"; return } ;;
+    esac
+    command kubecolor "$@"
+  }
+  (( $+_comps[kubectl] )) && compdef kubecolor=kubectl 2>/dev/null
+fi
 
 # SPACESHIP_KUBECTL_SHOW=true
 SPACESHIP_DOCKER_SHOW=false

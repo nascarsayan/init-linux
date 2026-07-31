@@ -239,14 +239,48 @@ fi
 
 autoload -U +X bashcompinit && bashcompinit
 
-# Disabled: aliasing kubectl to kubecolor breaks `kubectl exec -it`/`logs -f`/
-# `attach`/`port-forward` — kubecolor buffers stdout to colorize it, which is
-# incompatible with raw bidirectional pty streaming. Hangs with zero output,
-# confirmed on kubecolor v0.6.0 (latest) too, not a version-specific bug.
-# if command -v kubecolor >/dev/null 2>&1; then
-#   alias kubectl="kubecolor"
-#   compdef _kubectl kubecolor
-# fi
+# Route kubectl through kubecolor, but only for subcommands it can safely
+# colorize. A bare `alias kubectl=kubecolor` breaks `exec -it`, `attach`,
+# `port-forward`, `logs -f` and `get -w`: kubecolor buffers stdout to colorize it,
+# which is incompatible with raw bidirectional pty streaming, so those hang with
+# zero output. A function rather than an alias for two reasons -- it can dispatch
+# per subcommand, and the typed word stays `kubectl`, so the existing
+# _comps[kubectl] completion applies with no extra wiring (an alias would expand
+# to `kubecolor` and need its own compdef).
+if (( $+commands[kubecolor] )); then
+  kubectl() {
+    local sub="" a
+    for a in "$@"; do
+      [[ $a == -* ]] || { sub=$a; break }
+    done
+    local -a passthrough=(exec attach port-forward proxy cp edit debug wait)
+    # Streaming/interactive: must reach the terminal unbuffered.
+    if (( ${passthrough[(I)$sub]} )); then
+      command kubectl "$@"
+      return
+    fi
+    case $sub in
+      logs)
+        if (( ${@[(I)-f]} || ${@[(I)--follow]} )); then command kubectl "$@"; return; fi ;;
+      get)
+        if (( ${@[(I)-w]} || ${@[(I)--watch]} || ${@[(I)--watch-only]} )); then command kubectl "$@"; return; fi ;;
+      run|debug)
+        if (( ${@[(I)-i]} || ${@[(I)-t]} || ${@[(I)-it]} || ${@[(I)--stdin]} || ${@[(I)--tty]} )); then
+          command kubectl "$@"; return
+        fi ;;
+    esac
+    command kubecolor "$@"
+  }
+  # So that invoking `kubecolor` directly completes too. Deferred, because
+  # _comps[kubectl] is populated by the turbo-loaded OMZ plugin, i.e. after this
+  # point in the file.
+  _sbx_kubecolor_compdef() {
+    (( $+_comps[kubectl] )) && compdef kubecolor=kubectl 2>/dev/null
+    add-zsh-hook -d precmd _sbx_kubecolor_compdef
+  }
+  autoload -Uz add-zsh-hook
+  add-zsh-hook precmd _sbx_kubecolor_compdef
+fi
 
 if [[ -n "${P10K_CONFIG:-}" && -f "${P10K_CONFIG}" ]]; then
   source "${P10K_CONFIG}"
