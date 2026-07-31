@@ -178,21 +178,37 @@ MONOLITH_HOME="${MONOLITH_HOME:-${HOME}/ws/monolith}"
 # PYTHONPATH="${PYTHONPATH:-${MONOLITH_HOME}/src/infra}"
 export BUN_INSTALL MONOLITH_HOME
 
-# GITTOP is pinned, deliberately unconditional -- `${GITTOP:-...}` could never
-# take effect here. Cerebras' global bashrc (/cb/user_env/bashrc-latest) installs
-# a devenv auto-loader that does `GITTOP=$(git rev-parse --show-toplevel); export
-# GITTOP` per directory, so a bash launching the sandbox shell hands down GITTOP
-# set to whatever repo it happened to be sitting in -- hence values like
-# .../ws/init-linux leaking in. Nothing in zsh recomputes it (no chpwd/precmd
-# hook touches GITTOP), so a plain assignment here holds for this shell and every
-# child.
+# GITTOP tracks the enclosing git repo and is recomputed on every directory
+# change -- the zsh counterpart of what Cerebras' global bashrc does in bash
+# (`GITTOP=$(git rev-parse --show-toplevel); export GITTOP`, per directory).
+# Without a hook zsh simply inherits whatever GITTOP the launching bash happened
+# to have, which is why values like .../ws/init-linux used to leak in and stick.
 #
-# Caveat: this points at the main cluster checkout even when you are inside a gwq
-# worktree of it, so `make` in a worktree resolves TAG against ~/ws/cluster rather
-# than that worktree. Unset GITTOP in such a shell if you need the old
-# self-resolving behaviour from cluster/flow/version.mk.
-GITTOP="${HOME}/ws/cluster"
-export GITTOP
+# Walked in pure zsh instead of forking git: output is identical in every case
+# tested -- including a worktree nested inside another repo, where both correctly
+# yield the worktree rather than its parent -- but it costs 0.1ms against 6.5ms
+# for `git rev-parse`, and this runs on every cd. ${d:A} resolves symlinks so the
+# value matches git's physical path, as the bash version's does.
+#
+# Note this deliberately does NOT source ${GITTOP}/flow/devenv.sh the way bash's
+# auto-loader does; that pulls in monolith module loads and is far too heavy to
+# run on every directory change.
+_sbx_set_gittop() {
+  local d=$PWD
+  while [[ -n $d && $d != / ]]; do
+    if [[ -e $d/.git ]]; then
+      export GITTOP=${d:A}
+      return 0
+    fi
+    d=${d:h}
+  done
+  # Empty rather than unset when outside a repo, mirroring bash, where callers
+  # test `[ -z "$GITTOP" ]`.
+  export GITTOP=""
+}
+autoload -Uz add-zsh-hook
+add-zsh-hook chpwd _sbx_set_gittop
+_sbx_set_gittop   # seed for the directory the shell starts in
 
 if command -v kubectl >/dev/null 2>&1 && command -v krew >/dev/null 2>&1; then
   export KREW_ROOT="${KREW_ROOT:-${HOME}/.krew}"
