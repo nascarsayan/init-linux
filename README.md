@@ -1,47 +1,99 @@
-## Steps:
+# init-sh
 
-### 1. Customize 
+`init-sh` installs a personal command-line environment on macOS and Linux.
+It uses one Go binary for selection, package installation, and configuration.
 
-  - Either add all your keys with prefix `id_rsa` (eg: `id_rsa_github`, `id_rsa_github.pub`) in `home/.ssh/`.<br/>
-Alternatively, you can add your keys later, after running the scripts.
+## Install
 
-  - Edit the [`./home/.ssh/config`](./home/.ssh/config) as per your requirements.<br/>
-If you have some jumpbox VMs you can manage the configs here.<br/>
-You can also edit your `/etc/hosts` file to give user-friendly names to your Jumpbox IPs.
+### Host mode
 
-### 2. Set up your cli prompt and install other utility tools.
-```sh
-bash init.zsh
-```
-
-This will set up zsh with oh-my-zsh. Inside [`~/.oh-my-zsh/custom/`](./home/.oh-my-zsh/custom/) you'll find several utility functions and aliases which are loaded (sourced) into the shell.
-
-### 3. Install `pyenv`, `gvm`, etc.
-
-- [pyenv](https://github.com/pyenv/pyenv): Python Version Manager
-- [gvm](https://github.com/moovweb/gvm): Go Version Manager
-- [n](https://github.com/tj/n): Nodejs Version Manager.<br/>
-  Already installed while running `init.sh`, as it has a low footprint, and installs quickly.
+Host mode installs tools into the normal host environment.
+It does not create a Nix sandbox.
 
 ```sh
-bash packages/pyenv.sh
-bash packages/gvm.sh
-
-# And other packages as required.
+curl -fsSL https://raw.githubusercontent.com/nascarsayan/init-sh/master/install.sh | sh -s -- --machine
 ```
 
-### 4. Merge zsh history.
+The macOS path uses Homebrew. The Linux path uses the system package manager for
+`git`, `zsh`, and required archive tools. It uses mise for the selected CLI tools.
 
-You can save your `~/.zsh_history` for later reference. A vital step in improving your CLI experience is having access to all the great CLI commands you've run till now.
+Linux mise installations belong to the current user. They are host installations,
+but they are not available to every account on the machine.
 
-A function called `merge_zsh_hist` is created in [`~/.oh-my-zsh/custom/03_abbrev.zsh`](./home/.oh-my-zsh/custom/03_abbrev.zsh)
+### Sandboxed mode
+
+Sandboxed mode delegates to [`box`](https://github.com/nascarsayan/box).
+`box` uses Nix and does not change the host package set.
 
 ```sh
-merge_zsh_hist <path-to-saved-zsh-history-file>
+curl -fsSL https://raw.githubusercontent.com/nascarsayan/init-sh/master/install.sh | sh -s -- --sandboxed
 ```
-I've checked in my personal zsh history: `./.zsh_history`
 
-### 5. Dark Reader
+### Noninteractive host install
 
-I use [dark reader](https://darkreader.org/) for dark mode on selected websites.
-You can import [the config](./darkreader.json) in any of the supported web browsers to [be kind to your eyes](https://www.youtube.com/watch?v=ofd3xWFtoMY).
+Use the default selection:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/nascarsayan/init-sh/master/install.sh | sh -s -- --machine --yes
+```
+
+Select an exact set:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/nascarsayan/init-sh/master/install.sh | sh -s -- --machine --tools=fzf,ghq,gwq,helix
+```
+
+## Installation model
+
+The bootstrap performs these operations:
+
+1. It installs Homebrew on macOS, or mise on Linux.
+2. It installs `minijinja-cli`.
+3. It downloads a released `init-sh` binary.
+4. If no release exists, it builds the binary from the `master` branch.
+5. The binary installs the selected tools.
+6. The binary renders the shell configuration.
+
+The personal templates are in
+[`nascarsayan/box-config/portable`](https://github.com/nascarsayan/box-config/tree/main/portable).
+This repository contains installer code only.
+
+The generated files are:
+
+- `~/.zshrc`
+- `~/.zshenv`
+- `~/.config/gwq/config.toml`
+- `~/.config/init-sh/p10k.zsh`
+
+`init-sh` creates one `.pre-init-sh` backup before it replaces an existing shell file.
+It keeps zinit for fast deferred plugin loading.
+
+## ghq roots
+
+The default roots are:
+
+- Linux: `~/ws`
+- macOS: `~/Code/ghq`
+
+Use `--ghq-root PATH` to replace the default.
+
+## glibc
+
+The current Rocky Linux host has glibc 2.34. This version runs mise, but the
+MiniJinja 2.24 GNU binary requires a newer glibc.
+
+The official MiniJinja installer detects this case and selects its static musl
+binary. You do not need to install a musl runtime or musl system packages.
+
+## Development
+
+```sh
+go test ./...
+go build ./...
+```
+
+Print the host plan without changes:
+
+```sh
+go run . install --dry-run --yes --tools=fzf,ghq
+```

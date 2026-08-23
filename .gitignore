@@ -1,12 +1,4 @@
-.venv
+init-sh
 *.bak
-*.bk
-temp
-.vscode
-*.log
-__debug_bin
-.python-version
-sn-*
-.dockerignore
-.env
-**/*.env
+*.new
+.DS_Store
