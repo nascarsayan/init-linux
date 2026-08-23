@@ -16,7 +16,7 @@ var catalog = []tool{
 	{Group: "core", Name: "gh", Size: "~35M", Brew: "gh", Mise: "gh", Default: true},
 	{Group: "core", Name: "delta", Size: "~15M", Brew: "git-delta", Mise: "delta", Default: true},
 	{Group: "core", Name: "ghq", Size: "~10M", Brew: "ghq", Mise: "ghq", Default: true},
-	{Group: "core", Name: "gwq", Size: "~10M", Brew: "gwq", Mise: "ubi:d-kuro/gwq", Default: true},
+	{Group: "core", Name: "gwq", Size: "~10M", Brew: "d-kuro/tap/gwq", Mise: "ubi:d-kuro/gwq", Default: true},
 	{Group: "core", Name: "ripgrep", Size: "~10M", Brew: "ripgrep", Mise: "ripgrep", Default: true},
 	{Group: "core", Name: "fd", Size: "~5M", Brew: "fd", Mise: "fd", Default: true},
 	{Group: "core", Name: "eza", Size: "~5M", Brew: "eza", Mise: "eza", Default: true},

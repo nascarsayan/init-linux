@@ -18,6 +18,18 @@ func TestPlatformGhqRoots(t *testing.T) {
 	}
 }
 
+func TestGwqUsesUpstreamHomebrewTap(t *testing.T) {
+	for _, item := range catalog {
+		if item.Name == "gwq" {
+			if item.Brew != "d-kuro/tap/gwq" {
+				t.Fatalf("gwq Homebrew formula = %q", item.Brew)
+			}
+			return
+		}
+	}
+	t.Fatal("gwq is missing from the catalog")
+}
+
 func TestUnknownToolFailsBeforeInstallation(t *testing.T) {
 	err := validateTools([]string{"not-a-tool"})
 	if err == nil || !strings.Contains(err.Error(), "not-a-tool") {
